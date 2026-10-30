@@ -1,0 +1,26 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isAdmin()  { return signedIn() && request.auth.uid == 'zFls8RN2cnUd9q3cdyn2me18B2l2'; }
+
+    // ملف الطالب: التقدم والمجلدات والإعدادات
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create, update: if signedIn() && request.auth.uid == uid;
+      match /results/{rid} {
+        allow create: if signedIn() && request.auth.uid == uid;
+        allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      }
+    }
+    // المدير يرى نتائج جميع الطلاب
+    match /{path=**}/results/{rid} {
+      allow read: if isAdmin();
+    }
+    // بنوك الأسئلة وصورها وروابط الدروس وهيكل الاختبارات: يقرأها المسجّلون ويكتبها المدير فقط
+    match /tests/{id}   { allow read: if signedIn(); allow write: if isAdmin(); }
+    match /qimg/{id}    { allow read: if signedIn(); allow write: if isAdmin(); }
+    match /lessons/{id} { allow read: if signedIn(); allow write: if isAdmin(); }
+    match /meta/{id}    { allow read: if signedIn(); allow write: if isAdmin(); }
+  }
+}
