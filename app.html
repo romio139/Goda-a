@@ -240,7 +240,7 @@ a{color:inherit;text-decoration:none}
 <script type="module">
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,signOut,sendPasswordResetEmail,updateProfile} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
-import {getFirestore,doc,getDoc,setDoc,updateDoc,addDoc,deleteDoc,collection,collectionGroup,getDocs,serverTimestamp} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+import {getFirestore,doc,getDoc,setDoc,updateDoc,addDoc,deleteDoc,collection,collectionGroup,getDocs,serverTimestamp,writeBatch} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
 /* ========= 1) إعدادات Firebase ========= */
 const firebaseConfig={
@@ -411,7 +411,7 @@ function login(){
   <div class="row" style="justify-content:center;margin-top:12px"><button class="btn" id="t1">دخول</button><button class="btn g" id="t2">حساب جديد</button></div>
   <input id="nm" placeholder="الاسم" autocomplete="name" hidden><input id="em" type="email" placeholder="البريد الإلكتروني" dir="ltr" autocomplete="email">
   <input id="pw" type="password" placeholder="كلمة المرور" dir="ltr" autocomplete="current-password"><p class="er" id="er"></p>
-  <button class="btn" id="go" style="width:100%">دخول</button><button class="lnk" id="fg">نسيت كلمة المرور؟</button><p class="ver"><a href="index.html" style="color:var(--ac)">← الصفحة الرئيسية</a> · الإصدار 9</p></div>`;
+  <button class="btn" id="go" style="width:100%">دخول</button><button class="lnk" id="fg">نسيت كلمة المرور؟</button><p class="ver"><a href="index.html" style="color:var(--ac)">← الصفحة الرئيسية</a> · الإصدار 10</p></div>`;
   const mode=r=>{reg=r;$('#nm').hidden=!r;$('#t1').className='btn'+(r?' g':'');$('#t2').className='btn'+(r?'':' g');$('#go').textContent=r?'إنشاء الحساب':'دخول';$('#er').textContent=''};
   $('#t1').onclick=()=>mode(false);$('#t2').onclick=()=>mode(true);
   const go=async()=>{
@@ -1097,6 +1097,44 @@ function profile(){
   $('#rs').onclick=()=>{if(confirm('مسح علامات إكمال كل الدروس؟')){S.done={};saveUser({done:{}});toast('تمت إعادة التعيين')}};
 }
 
+/* ========= أدوات إدارة الاختبارات: استيراد دفعي ومسح وحذف ========= */
+async function importQuestionsBatch(tid,arr){
+  const add=[],imgs=[];
+  arr.forEach((x,i)=>{
+    if(!x||!x.q||!Array.isArray(x.o)||x.o.length!==4||![0,1,2,3].includes(x.a))throw new Error('السؤال '+(i+1)+' غير مكتمل');
+    const id='q'+uid()+i;let img=false;
+    if(x.fig){
+      const sv=String(x.fig);
+      if(!/^\s*<svg[\s>]/.test(sv)||/<script|\son\w+\s*=/i.test(sv))throw new Error('الرسم في السؤال '+(i+1)+' غير صالح');
+      imgs.push([id,'data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(sv)))]);img=true;
+    }
+    add.push({id,q:String(x.q),o:x.o.map(String),a:x.a,e:String(x.e||''),v:/^https?:\/\//.test(x.v||'')?String(x.v):'',k:String(x.k||''),img});
+  });
+  const all=[...(S.tests[tid]||[]),...add],b=writeBatch(db);
+  imgs.forEach(([id,d])=>b.set(doc(db,'qimg',id),{d}));
+  b.set(doc(db,'tests',tid),{qs:all});
+  await b.commit();
+  S.tests[tid]=all;
+  return add.length;
+}
+async function deleteTestImages(tid){
+  const ids=(S.tests[tid]||[]).filter(q=>q.img).map(q=>q.id);
+  for(let i=0;i<ids.length;i+=400){const b=writeBatch(db);ids.slice(i,i+400).forEach(id=>b.delete(doc(db,'qimg',id)));await b.commit()}
+  ids.forEach(id=>delete IMG[id]);
+}
+async function wipeTestQuestions(tid){
+  await deleteTestImages(tid);
+  await setDoc(doc(db,'tests',tid),{qs:[]});
+  S.tests[tid]=[];
+}
+async function deleteTestCompletely(tid){
+  await deleteTestImages(tid);
+  await deleteDoc(doc(db,'tests',tid));
+  delete S.tests[tid];
+  Object.keys(COURSES).forEach(k=>COURSES[k].groups.forEach(g=>{g.items=g.items.filter(x=>x.id!==tid)}));
+  await saveStructure();
+}
+
 /* ========= الإدارة (للمدير فقط) ========= */
 function admin(){
   if(!S.isAdmin){app.innerHTML=`<div class="card"><h3>⚙ صفحة الإدارة</h3><p class="mut">هذا الحساب ليس حساب المدير.</p><p dir="ltr" class="mut">UID: ${S.user.uid}</p><p class="mut">ضع هذا المعرّف في <b>ADMIN_UID</b> داخل الملف وفي قواعد Firestore.</p></div>`;return}
@@ -1131,6 +1169,11 @@ function admin(){
         <button class="btn g" id="btn_rename_t">✏ إعادة تسمية الاختبار</button>
         <button class="btn" id="btn_new_t">➕ إضافة اختبار جديد</button>
       </div>
+      <div class="row" style="flex-wrap:wrap;margin-top:10px">
+        <button class="btn danger sm" id="btn_wipe_t">🧹 مسح أسئلة الاختبار (يبقى الاختبار فارغاً)</button>
+        <button class="btn danger sm" id="btn_del_t">🗑 حذف الاختبار بالكامل</button>
+      </div>
+      <p class="mut sm" style="margin-top:8px">استخدمهما لمعالجة أخطاء الرفع: «مسح الأسئلة» ثم أعد رفع الملف، أو «حذف بالكامل» لإزالة الاختبار من القائمة نهائياً. نتائج الطلاب السابقة تبقى محفوظة.</p>
     </div>
 
     <div class="grid g2f">
@@ -1199,6 +1242,17 @@ function admin(){
       <button class="btn" id="badd">رفع الأسئلة دفعة واحدة</button>
     </div><br>
 
+    <!-- استيراد دفعة اختبارات -->
+    <div class="card fm" style="margin-bottom:20px">
+      <h3>📦 استيراد دفعة اختبارات (ملفات متعددة)</h3>
+      <p class="mut">اختر عدة ملفات اختبارات دفعة واحدة (مثل t01.json … أو ft01.json …). يحدد كل ملف اختباره ومساره، ويُنشئ الموقع الاختبار تلقائياً إن لم يكن موجوداً.</p>
+      <label class="row" style="margin:8px 0"><input type="radio" name="bm" value="skip" checked> تخطّي الاختبارات التي فيها أسئلة (الأكثر أماناً)</label>
+      <label class="row" style="margin:8px 0"><input type="radio" name="bm" value="replace"> استبدال أسئلة الاختبارات الموجودة بأسئلة الملف</label>
+      <input type="file" id="bulkf" accept=".json,application/json" multiple><br>
+      <button class="btn" id="bulkb">بدء الاستيراد</button>
+      <div id="bulklog" class="mut sm" style="margin-top:10px;max-height:260px;overflow:auto"></div>
+    </div>
+
     <!-- استيراد JSON -->
     <div class="card fm">
       <h3>📥 استيراد أسئلة من ملف JSON</h3>
@@ -1253,6 +1307,65 @@ function admin(){
       await saveStructure();
       renderAdminUI();
       toast('تمت إضافة الاختبار بنجاح ✓');
+    };
+
+    // مسح أسئلة اختبار / حذفه بالكامل
+    $('#btn_wipe_t').onclick=async()=>{
+      const id=$('#adm_cur_test').value,it=getAdminQuizzes().find(x=>x.id===id);
+      if(!it)return toast('اختر اختباراً صالحاً');
+      const cnt=(S.tests[id]||[]).length;
+      if(!cnt)return toast('لا توجد أسئلة في هذا الاختبار');
+      const ok=await modal({icon:'🧹',html:`سيُحذف <b>${cnt}</b> سؤالاً من «${esc(it.t)}» مع صورها، ويبقى الاختبار فارغاً لتعيد رفعه. هل أنت متأكد؟`,ok:'نعم، امسح الأسئلة',cancel:'إلغاء'});
+      if(!ok)return;
+      toast('جارٍ الحذف…');
+      try{await wipeTestQuestions(id);toast('تم مسح الأسئلة ✓')}catch(e){console.error(e);toast('تعذر الحذف — راجع الاتصال والقواعد')}
+      renderAdminUI();
+    };
+    $('#btn_del_t').onclick=async()=>{
+      const id=$('#adm_cur_test').value,it=getAdminQuizzes().find(x=>x.id===id);
+      if(!it)return toast('اختر اختباراً صالحاً');
+      const cnt=(S.tests[id]||[]).length;
+      const ok=await modal({icon:'⚠️',html:`سيُحذف الاختبار «<b>${esc(it.t)}</b>» بالكامل${cnt?` مع <b>${cnt}</b> سؤالاً وصورها`:''} ويُزال من قائمة الدورة نهائياً. لا يمكن التراجع.`,ok:'متابعة',cancel:'إلغاء'});
+      if(!ok)return;
+      const typed=prompt('للتأكيد اكتب اسم الاختبار بالضبط:\n'+it.t);
+      if(typed===null)return;
+      if(typed.trim()!==it.t.trim())return toast('الاسم غير مطابق — لم يُحذف شيء');
+      toast('جارٍ الحذف…');
+      try{await deleteTestCompletely(id);toast('تم حذف الاختبار ✓')}catch(e){console.error(e);toast('تعذر حذف الاختبار')}
+      renderAdminUI();
+    };
+
+    // استيراد دفعة ملفات
+    $('#bulkb').onclick=async()=>{
+      const files=[...$('#bulkf').files];if(!files.length)return toast('اختر الملفات أولاً');
+      const mode=document.querySelector('[name=bm]:checked').value,log=$('#bulklog');
+      const say=t=>{log.insertAdjacentHTML('beforeend',`<div>${esc(t)}</div>`);log.scrollTop=log.scrollHeight};
+      files.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
+      $('#bulkb').disabled=true;log.innerHTML='';
+      let ok=0,skip=0,bad=0,struct=false;
+      for(const f of files){
+        try{
+          const d=JSON.parse(await f.text()),arr=Array.isArray(d)?d:d.questions,tid=d&&d.test,trk=(d&&d.track)||adminTrack;
+          if(!tid||!Array.isArray(arr)||!arr.length)throw new Error('الملف لا يحدد اختباراً أو لا يحوي أسئلة');
+          if(!/^[A-Za-z0-9_]+$/.test(tid))throw new Error('معرّف الاختبار غير صالح');
+          if(!COURSES[trk])throw new Error('مسار غير معروف: '+trk);
+          let item=COURSES[trk].groups.flatMap(g=>g.items).find(x=>x.id===tid);
+          if(!item){
+            let grp=COURSES[trk].groups.find(g=>g.items.some(x=>x.quiz));
+            if(!grp){grp={t:'بنك الأسئلة والاختبارات',items:[]};COURSES[trk].groups.push(grp)}
+            item={id:tid,t:String(d.title||tid),d:'',quiz:true};grp.items.push(item);struct=true;
+          }
+          const have=(S.tests[tid]||[]).length;
+          if(have&&mode==='skip'){say(`⏭ ${f.name}: «${item.t}» فيه ${have} سؤالاً — تم التخطي`);skip++;continue}
+          if(have)await wipeTestQuestions(tid);
+          const c=await importQuestionsBatch(tid,arr);
+          say(`✓ ${f.name} ← «${item.t}»: ${c} سؤالاً`);ok++;
+        }catch(e){bad++;console.error(e);say(`✗ ${f.name}: ${e.message}`)}
+      }
+      if(struct)await saveStructure();
+      say(`— انتهى: نجح ${ok} ، تخطّى ${skip} ، فشل ${bad}`);
+      $('#bulkb').disabled=false;toast('انتهى الاستيراد');
+      if(struct||ok)setTimeout(renderAdminUI,1500);
     };
 
     // دعم لصق الصور
@@ -1384,7 +1497,7 @@ function admin(){
     $('#jadd').onclick=async()=>{
       const f=$('#jf').files[0],t=$('#jt').value;if(!f)return toast('اختر الملف');
       try{
-        const arr=JSON.parse(await f.text());
+        const dj=JSON.parse(await f.text()),arr=Array.isArray(dj)?dj:(dj&&dj.questions);
         if(!Array.isArray(arr)||!arr.length)throw new Error('الملف لا يحوي قائمة أسئلة');
         const add=[];
         for(let i=0;i<arr.length;i++){
