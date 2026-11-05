@@ -319,6 +319,8 @@ let CUR_TRACK=LS.get('cur_track')||'computerized';
 let COURSES=JSON.parse(JSON.stringify(DEFAULT_COURSES));
 const isEN=()=>CUR_TRACK==='gat'||CUR_TRACK==='american';
 const curTop=()=>CUR_TRACK.startsWith('st_')?'stages':CUR_TRACK;
+const allowedT=k=>S.isAdmin||!S.track0||k===S.track0;
+const trOptsA=sel=>(S.isAdmin||!S.track0)?trOpts(sel):`<option value="${S.track0}" selected>${esc(trName(S.track0))}</option>`;
 const trName=k=>COURSES[k]?COURSES[k].title:'—';
 const secOf=t=>{for(const k of Object.keys(COURSES))if(COURSES[k].groups.some(g=>g.items.some(x=>x.id===t)))return COURSES[k].title;return'—'};
 const trOpts=(sel)=>TR.filter(x=>x[0]!=='stages').map(([k,i,n])=>`<option value="${k}"${k===sel?' selected':''}>${i} ${n}</option>`).join('')+`<optgroup label="المراحل التعليمية">${GRADES.map(([c,n])=>`<option value="st_${c}"${'st_'+c===sel?' selected':''}>${n}</option>`).join('')}</optgroup>`;
@@ -435,6 +437,7 @@ function route(){
   const h=location.hash.replace('#/','')||'';
   if(h.startsWith('course')){
     const parts=h.split('/');
+    if(parts[1]&&COURSES[parts[1]]&&!allowedT(parts[1])){location.hash='#/course/'+S.track0;return}
     if(parts[1]==='stages'){pickTrack('stages');return dash()}
     if(parts[1]&&COURSES[parts[1]]){if(CUR_TRACK!==parts[1]){CUR_TRACK=parts[1];cur=allItems()[0]?.id}LS.set('cur_track',CUR_TRACK);applyLang()}
     return course();
@@ -456,6 +459,7 @@ function pending(){
   $('#rf').onclick=async()=>{await loadAll();route()};
 }
 async function pickTrack(k){
+  if(k==='stages'&&!S.isAdmin&&S.track0&&S.track0.startsWith('st_'))k=S.track0;
   if(k==='stages'){const g=await modal({icon:'🏫',html:`<h3>اختر مرحلتك الدراسية</h3><select id="gsel">${GRADES.map(([c,n])=>`<option value="${c}">${n}</option>`).join('')}</select>`,ok:'دخول',cancel:'إلغاء',collect:bg=>bg.querySelector('#gsel').value});if(!g)return;k='st_'+g}
   location.hash='#/course/'+k;
 }
@@ -494,7 +498,7 @@ function dash(){
   ${S.err?`<p class="er">${/permission/i.test(S.err)?'لم تُنشر قواعد Firestore بعد (أو لم تُضبط على حسابك). انسخ المعرّف أدناه وأرسله للمطوّر.':'تعذر تحميل البيانات: '+esc(S.err)}</p>`:''}
   ${ADMIN_UID==='PUT_ADMIN_UID_HERE'?`<div class="card" style="margin:14px 0"><b>🔑 معرّف حسابك (UID)</b><p class="mut" style="font-size:.9rem">اضغط داخل الخانة لتحديده ثم انسخه (Ctrl+C) وأرسله ليجعل حسابك مديراً للمنصة.</p><input class="inp" readonly dir="ltr" value="${S.user.uid}" style="width:100%;margin-top:6px" onclick="this.select()"></div>`:''}
   
-  <div class="tkgrid">${TR.map(([k,i,n])=>`<button class="tkbig ${curTop()===k?'active':''}" data-tk="${k}"><span>${i}</span><b>${n}</b></button>`).join('')}</div>
+  <div class="tkgrid">${TR.filter(([k])=>S.isAdmin||!S.track0||(S.track0.startsWith('st_')?k==='stages':k===S.track0)).map(([k,i,n])=>`<button class="tkbig ${curTop()===k?'active':''}" data-tk="${k}"><span>${i}</span><b>${n}</b></button>`).join('')}</div>
 
   <div class="card cc"><div class="th"><span class="lg" style="width:58px;height:58px;border-radius:16px" role="img" aria-label="شعار منصة جوده"></span><span>${esc(cTitle)}</span></div><div><h3>${esc(cTitle)}</h3><p class="mut">تقدمك ${pct()}%</p><div class="bar"><i style="width:${pct()}%"></i></div></div>
   <a class="btn" href="#/course/${CUR_TRACK}">متابعة التعلّم ◀</a></div><br>
@@ -510,7 +514,7 @@ function course(){
   const it=all.find(x=>x.id===cur)||all[0]||{id:'intro',t:'الدرس'};
   const m=S.media[it.id]||{},fs=m.files||[],n=it.quiz?getQs(it.id).length:0,rs=S.res.filter(x=>x.tid===it.id),{a,b}=statBox(rs);
   app.innerHTML=`
-  <div class="row" style="margin-bottom:16px;gap:12px"><select class="inp" id="tksel" style="min-width:240px">${trOpts(CUR_TRACK)}</select><button class="track-pill" id="c_feat">⚡ المميزات</button></div>
+  <div class="row" style="margin-bottom:16px;gap:12px"><select class="inp" id="tksel" style="min-width:240px">${trOptsA(CUR_TRACK)}</select><button class="track-pill" id="c_feat">⚡ المميزات</button></div>
   <div class="cl"><div>
    <div class="player" id="pl">${m.video?`<iframe src="https://www.youtube-nocookie.com/embed/${esc(m.video.id)}?rel=0" title="${esc(it.t)}" allow="accelerometer;encrypted-media;picture-in-picture;fullscreen" allowfullscreen loading="lazy"></iframe>`:'<div><span class="lg" style="width:78px;height:78px;border-radius:22px;margin:0 auto 12px;box-shadow:0 12px 36px var(--glow)" role="img" aria-label="شعار منصة جوده"></span><p class="mut">لم يُضف فيديو لهذا الدرس بعد</p></div>'}</div>
    <div class="card" style="margin-top:16px"><h3>${it.t}</h3>
@@ -809,6 +813,8 @@ function quizRoute(h){
     }
   }
   if(!it)return location.hash='#/course';
+  const ownT=Object.keys(COURSES).find(k=>COURSES[k].groups.some(g=>g.items.some(x=>x.id===id)));
+  if(ownT&&!allowedT(ownT))return location.hash='#/';
   startQuiz(it,getQs(id),mode==='train'?'train':'exam');
 }
 function startQuiz(it,qs,mode){
@@ -1299,8 +1305,9 @@ function admin(){
     <!-- استيراد دفعة اختبارات -->
     <div class="card fm" style="margin-bottom:20px">
       <h3>📦 استيراد دفعة اختبارات (ملفات متعددة)</h3>
-      <p class="mut">اختر عدة ملفات اختبارات دفعة واحدة (مثل t01.json … أو ft01.json …). يحدد كل ملف اختباره ومساره، ويُنشئ الموقع الاختبار تلقائياً إن لم يكن موجوداً.</p>
-      <label class="row" style="margin:8px 0"><input type="radio" name="bm" value="skip" checked> تخطّي الاختبارات التي فيها أسئلة (الأكثر أماناً)</label>
+      <p class="mut">اختر عدة ملفات دفعة واحدة، وتُرتَّب حسب اسم الملف. في الوضع التلقائي يُنشأ لكل ملف اختبار جديد في الدورة المحددة أعلاه بلا حد للعدد، ويُسمّى تلقائياً حسب آخر اختبار موجود. وفي الوضعين الآخرين يحدد كل ملف اختباره بحقل <code>test</code>.</p>
+      <label class="row" style="margin:8px 0"><input type="radio" name="bm" value="auto" checked> ➕ إنشاء اختبار جديد لكل ملف وتسميته تلقائياً بالتسلسل (مثل: تأسيس 6، تأسيس 7 …)</label>
+      <label class="row" style="margin:8px 0"><input type="radio" name="bm" value="skip"> تخطّي الاختبارات التي فيها أسئلة (الأكثر أماناً)</label>
       <label class="row" style="margin:8px 0"><input type="radio" name="bm" value="replace"> استبدال أسئلة الاختبارات الموجودة بأسئلة الملف</label>
       <input type="file" id="bulkf" accept=".json,application/json" multiple><br>
       <button class="btn" id="bulkb">بدء الاستيراد</button>
@@ -1398,10 +1405,25 @@ function admin(){
       let ok=0,skip=0,bad=0,struct=false;
       for(const f of files){
         try{
-          const d=JSON.parse(await f.text()),arr=Array.isArray(d)?d:d.questions,tid=d&&d.test,trk=(d&&d.track)||adminTrack;
-          if(!tid||!Array.isArray(arr)||!arr.length)throw new Error('الملف لا يحدد اختباراً أو لا يحوي أسئلة');
-          if(!/^[A-Za-z0-9_]+$/.test(tid))throw new Error('معرّف الاختبار غير صالح');
+          const d=JSON.parse(await f.text()),arr=Array.isArray(d)?d:d.questions,trk=(d&&d.track)||adminTrack;let tid=d&&d.test;
           if(!COURSES[trk])throw new Error('مسار غير معروف: '+trk);
+          if(!Array.isArray(arr)||!arr.length)throw new Error('الملف لا يحوي أسئلة');
+          if(mode==='auto'){
+            const its=COURSES[trk].groups.flatMap(g=>g.items).filter(x=>x.quiz),last=its[its.length-1];
+            const ids=new Set(Object.values(COURSES).flatMap(c=>c.groups.flatMap(g=>g.items.map(x=>x.id))));
+            let n=Math.max(0,...its.map(x=>{const m=String(x.t).match(/(\d+)\s*$/);return m?+m[1]:0}))+1;
+            let base=last?String(last.t).replace(/\d+\s*$/,''):'اختبار ',pre='t';
+            if(last){const mi=String(last.id).match(/^(.*?)\d+$/);pre=mi?mi[1]:last.id+'_'}
+            if(!base.trim())base='اختبار ';
+            while(ids.has(pre+n))n++;
+            tid=pre+n;
+            let grp=last?COURSES[trk].groups.find(g=>g.items.includes(last)):COURSES[trk].groups[0];
+            if(!grp){grp={t:'بنك الأسئلة والاختبارات',items:[]};COURSES[trk].groups.push(grp)}
+            grp.items.push({id:tid,t:base+n,d:'',quiz:true});struct=true;
+            await saveStructure();
+          }
+          if(!tid)throw new Error('الملف لا يحدد اختباراً (حقل test)');
+          if(!/^[A-Za-z0-9_]+$/.test(tid))throw new Error('معرّف الاختبار غير صالح');
           let item=COURSES[trk].groups.flatMap(g=>g.items).find(x=>x.id===tid);
           if(!item){
             let grp=COURSES[trk].groups.find(g=>g.items.some(x=>x.quiz));
