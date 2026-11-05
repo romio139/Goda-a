@@ -248,7 +248,8 @@ html.us #bgd{display:none}
 html.us .top{overflow:hidden}
 html.us .top::before{content:"";position:absolute;inset:0 0 auto 0;height:8px;background:repeating-linear-gradient(90deg,#b22234 0 22px,#fff 22px 44px)}
 html.us .top::after{content:"★ ★ ★ ★ ★ ★";position:absolute;top:0;left:0;width:170px;height:8px;background:#3c3b6e;color:#fff;font-size:6px;line-height:8px;letter-spacing:4px;padding-left:8px}
-html.us body::after{content:"";position:fixed;left:18px;bottom:18px;width:240px;height:126px;border-radius:8px;opacity:.13;pointer-events:none;z-index:0;background:linear-gradient(#3c3b6e,#3c3b6e) 0 0/45% 54% no-repeat,repeating-linear-gradient(180deg,#b22234 0 9.7px,#fff 9.7px 19.4px)}
+#usflag{position:fixed;inset:0;width:100vw;height:100vh;z-index:-1;opacity:.34;pointer-events:none}
+body.fsq #usflag{display:none}
 html.us .qhead{background:linear-gradient(135deg,#3c3b6e,#b22234)}
 </style>
 </head>
@@ -311,19 +312,21 @@ const mkC=(p,title,en)=>({title,groups:[{t:en?'Introduction':'الحصة الت�
 DEFAULT_COURSES.gat=mkC('gat','GAT Course',1);
 DEFAULT_COURSES.tahsili=mkC('tah','دورة التحصيلي');
 DEFAULT_COURSES.american=mkC('am','American Section',1);
+const AGR=[3,4,5,6,7,8,9,10,11,12].map(n=>['g'+n,'Grade '+n]);
+AGR.forEach(([c,n])=>DEFAULT_COURSES['am_'+c]=mkC('am'+c,'American Section — '+n,1));
 const GRADES=[['p3','الصف الثالث الابتدائي'],['p4','الصف الرابع الابتدائي'],['p5','الصف الخامس الابتدائي'],['p6','الصف السادس الابتدائي'],['m1','الصف الأول المتوسط'],['m2','الصف الثاني المتوسط'],['m3','الصف الثالث المتوسط'],['s1','الصف الأول الثانوي'],['s2','الصف الثاني الثانوي'],['s3','الصف الثالث الثانوي']];
 GRADES.forEach(([c,n])=>DEFAULT_COURSES['st_'+c]=mkC('st'+c,n));
 const TR=[['computerized','📘','دورة المحوسب'],['foundation','📐','دورة التأسيس'],['gat','🎓','GAT'],['tahsili','🧪','التحصيلي'],['stages','🏫','المراحل التعليمية'],['american','🇺🇸','American Section']];
 const LS={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
 let CUR_TRACK=LS.get('cur_track')||'computerized';
 let COURSES=JSON.parse(JSON.stringify(DEFAULT_COURSES));
-const isEN=()=>CUR_TRACK==='gat'||CUR_TRACK==='american';
-const curTop=()=>CUR_TRACK.startsWith('st_')?'stages':CUR_TRACK;
+const isEN=()=>CUR_TRACK==='gat'||CUR_TRACK==='american'||CUR_TRACK.startsWith('am_');
+const curTop=()=>CUR_TRACK.startsWith('st_')?'stages':CUR_TRACK.startsWith('am_')?'american':CUR_TRACK;
 const allowedT=k=>S.isAdmin||!S.track0||k===S.track0;
 const trOptsA=sel=>(S.isAdmin||!S.track0)?trOpts(sel):`<option value="${S.track0}" selected>${esc(trName(S.track0))}</option>`;
 const trName=k=>COURSES[k]?COURSES[k].title:'—';
 const secOf=t=>{for(const k of Object.keys(COURSES))if(COURSES[k].groups.some(g=>g.items.some(x=>x.id===t)))return COURSES[k].title;return'—'};
-const trOpts=(sel)=>TR.filter(x=>x[0]!=='stages').map(([k,i,n])=>`<option value="${k}"${k===sel?' selected':''}>${i} ${n}</option>`).join('')+`<optgroup label="المراحل التعليمية">${GRADES.map(([c,n])=>`<option value="st_${c}"${'st_'+c===sel?' selected':''}>${n}</option>`).join('')}</optgroup>`;
+const trOpts=(sel)=>TR.filter(x=>x[0]!=='stages'&&x[0]!=='american').map(([k,i,n])=>`<option value="${k}"${k===sel?' selected':''}>${i} ${n}</option>`).join('')+`<optgroup label="المراحل التعليمية">${GRADES.map(([c,n])=>`<option value="st_${c}"${'st_'+c===sel?' selected':''}>${n}</option>`).join('')}</optgroup><optgroup label="American Section">${AGR.map(([c,n])=>`<option value="am_${c}"${'am_'+c===sel?' selected':''}>🇺🇸 ${n}</option>`).join('')}</optgroup>`;
 
 const PASS={exam:100,train:70};
 const ACC=['#18a4f2','#f58a22','#8b5cf6','#19cf93','#e84a93','#ffcf33'];
@@ -437,8 +440,8 @@ function route(){
   const h=location.hash.replace('#/','')||'';
   if(h.startsWith('course')){
     const parts=h.split('/');
+    if(parts[1]==='stages'||parts[1]==='american'){pickTrack(parts[1]);return dash()}
     if(parts[1]&&COURSES[parts[1]]&&!allowedT(parts[1])){location.hash='#/course/'+S.track0;return}
-    if(parts[1]==='stages'){pickTrack('stages');return dash()}
     if(parts[1]&&COURSES[parts[1]]){if(CUR_TRACK!==parts[1]){CUR_TRACK=parts[1];cur=allItems()[0]?.id}LS.set('cur_track',CUR_TRACK);applyLang()}
     return course();
   }
@@ -459,26 +462,30 @@ function pending(){
   $('#rf').onclick=async()=>{await loadAll();route()};
 }
 async function pickTrack(k){
-  if(k==='stages'&&!S.isAdmin&&S.track0&&S.track0.startsWith('st_'))k=S.track0;
-  if(k==='stages'){const g=await modal({icon:'🏫',html:`<h3>اختر مرحلتك الدراسية</h3><select id="gsel">${GRADES.map(([c,n])=>`<option value="${c}">${n}</option>`).join('')}</select>`,ok:'دخول',cancel:'إلغاء',collect:bg=>bg.querySelector('#gsel').value});if(!g)return;k='st_'+g}
+  const R=!S.isAdmin&&S.track0;
+  if(k==='stages'&&R&&S.track0.startsWith('st_'))k=S.track0;
+  if(k==='american'&&R&&S.track0.startsWith('am_'))k=S.track0;
+  const ask=(icon,h,list,ok,no)=>modal({icon,html:`<h3>${h}</h3><select id="gsel">${list.map(([c,n])=>`<option value="${c}">${n}</option>`).join('')}</select>`,ok,cancel:no,collect:bg=>bg.querySelector('#gsel').value});
+  if(k==='stages'){const g=await ask('🏫','اختر مرحلتك الدراسية',GRADES,'دخول','إلغاء');if(!g)return;k='st_'+g}
+  else if(k==='american'){const g=await ask('🇺🇸','Choose your grade',AGR,'Enter','Cancel');if(!g)return;k='am_'+g}
   location.hash='#/course/'+k;
 }
 function login(){
   let reg=false;
   app.innerHTML=`<div class="card login"><span class="lg" role="img" aria-label="شعار منصة جوده"></span><h2>أهلاً بك في منصة جوده</h2><p class="mut">سجّل دخولك لمتابعة رحلتك نحو المئوية</p>
   <div class="row" style="justify-content:center;margin-top:12px"><button class="btn" id="t1">دخول</button><button class="btn g" id="t2">حساب جديد</button></div>
-  <input id="nm" placeholder="الاسم" autocomplete="name" hidden><div id="rg" hidden><label class="mut sm">اختر الدورة التي تريد الالتحاق بها</label><select id="rc">${trOpts('computerized').replace(/<optgroup.*<\/optgroup>/s,'')}<option value="stages">🏫 المراحل التعليمية</option></select><select id="rg2" style="display:none">${GRADES.map(([c,n])=>`<option value="${c}">${n}</option>`).join('')}</select></div><input id="em" type="email" placeholder="البريد الإلكتروني" dir="ltr" autocomplete="email">
+  <input id="nm" placeholder="الاسم" autocomplete="name" hidden><div id="rg" hidden><label class="mut sm">اختر الدورة التي تريد الالتحاق بها</label><select id="rc">${trOpts('computerized').replace(/<optgroup.*<\/optgroup>/s,'')}<option value="stages">🏫 المراحل التعليمية</option><option value="american">🇺🇸 American Section</option></select><select id="rg2" style="display:none">${GRADES.map(([c,n])=>`<option value="${c}">${n}</option>`).join('')}</select></div><input id="em" type="email" placeholder="البريد الإلكتروني" dir="ltr" autocomplete="email">
   <input id="pw" type="password" placeholder="كلمة المرور" dir="ltr" autocomplete="current-password"><p class="er" id="er"></p>
   <button class="btn" id="go" style="width:100%">دخول</button><button class="lnk" id="fg">نسيت كلمة المرور؟</button><p class="ver"><a href="index.html" style="color:var(--ac)">← الصفحة الرئيسية</a> · الإصدار 10</p></div>`;
   const mode=r=>{reg=r;$('#nm').hidden=!r;$('#rg').hidden=!r;$('#t1').className='btn'+(r?' g':'');$('#t2').className='btn'+(r?'':' g');$('#go').textContent=r?'إنشاء الحساب':'دخول';$('#er').textContent=''};
-  $('#rc').onchange=()=>{$('#rg2').style.display=$('#rc').value==='stages'?'':'none'};$('#t1').onclick=()=>mode(false);$('#t2').onclick=()=>mode(true);
+  $('#rc').onchange=()=>{const v=$('#rc').value,g=v==='stages'?GRADES:v==='american'?AGR:null;$('#rg2').style.display=g?'':'none';if(g)$('#rg2').innerHTML=g.map(([c,n])=>`<option value="${c}">${n}</option>`).join('')};$('#t1').onclick=()=>mode(false);$('#t2').onclick=()=>mode(true);
   const go=async()=>{
     const em=$('#em').value.trim(),pw=$('#pw').value,nm=$('#nm').value.trim();
     if(!em||!pw)return $('#er').textContent='أدخل البريد وكلمة المرور';
     if(reg&&!nm)return $('#er').textContent='أدخل الاسم';
     $('#go').disabled=true;
     try{
-      if(reg){S.pending=nm;S.pendTrack=$('#rc').value==='stages'?'st_'+$('#rg2').value:$('#rc').value;const c=await createUserWithEmailAndPassword(auth,em,pw);await updateProfile(c.user,{displayName:nm})}
+      if(reg){S.pending=nm;S.pendTrack=$('#rc').value==='stages'?'st_'+$('#rg2').value:$('#rc').value==='american'?'am_'+$('#rg2').value:$('#rc').value;const c=await createUserWithEmailAndPassword(auth,em,pw);await updateProfile(c.user,{displayName:nm})}
       else await signInWithEmailAndPassword(auth,em,pw);
     }catch(e){S.pending='';$('#er').textContent=ERR[e.code]||e.message;$('#go').disabled=false}
   };
@@ -498,7 +505,7 @@ function dash(){
   ${S.err?`<p class="er">${/permission/i.test(S.err)?'لم تُنشر قواعد Firestore بعد (أو لم تُضبط على حسابك). انسخ المعرّف أدناه وأرسله للمطوّر.':'تعذر تحميل البيانات: '+esc(S.err)}</p>`:''}
   ${ADMIN_UID==='PUT_ADMIN_UID_HERE'?`<div class="card" style="margin:14px 0"><b>🔑 معرّف حسابك (UID)</b><p class="mut" style="font-size:.9rem">اضغط داخل الخانة لتحديده ثم انسخه (Ctrl+C) وأرسله ليجعل حسابك مديراً للمنصة.</p><input class="inp" readonly dir="ltr" value="${S.user.uid}" style="width:100%;margin-top:6px" onclick="this.select()"></div>`:''}
   
-  <div class="tkgrid">${TR.filter(([k])=>S.isAdmin||!S.track0||(S.track0.startsWith('st_')?k==='stages':k===S.track0)).map(([k,i,n])=>`<button class="tkbig ${curTop()===k?'active':''}" data-tk="${k}"><span>${i}</span><b>${n}</b></button>`).join('')}</div>
+  <div class="tkgrid">${TR.filter(([k])=>S.isAdmin||!S.track0||(S.track0.startsWith('st_')?k==='stages':S.track0.startsWith('am_')?k==='american':k===S.track0)).map(([k,i,n])=>`<button class="tkbig ${curTop()===k?'active':''}" data-tk="${k}"><span>${i}</span><b>${n}</b></button>`).join('')}</div>
 
   <div class="card cc"><div class="th"><span class="lg" style="width:58px;height:58px;border-radius:16px" role="img" aria-label="شعار منصة جوده"></span><span>${esc(cTitle)}</span></div><div><h3>${esc(cTitle)}</h3><p class="mut">تقدمك ${pct()}%</p><div class="bar"><i style="width:${pct()}%"></i></div></div>
   <a class="btn" href="#/course/${CUR_TRACK}">متابعة التعلّم ◀</a></div><br>
@@ -1618,8 +1625,36 @@ function trNode(n){
   if(n.nodeType===3){const o=n.nodeValue,k=o.trim();if(!k)return;const v=tx(k);if(v){if(n._o===undefined)n._o=o;n.nodeValue=o.replace(k,()=>v)}}
   else if(n.nodeType===1){['placeholder','title','aria-label'].forEach(a=>{const v=n.getAttribute(a),t=v&&tx(v);if(t)n.setAttribute(a,t)});n.childNodes.forEach(trNode)}
 }
+
+/* ========= العلم الأمريكي المرفرف ========= */
+let usRAF=0,usCv=null;
+function usFlagOn(){
+  if(usCv)return;
+  const cv=document.createElement('canvas');cv.id='usflag';document.body.prepend(cv);usCv=cv;
+  const tex=document.createElement('canvas');tex.width=760;tex.height=400;const t=tex.getContext('2d');
+  for(let i=0;i<13;i++){t.fillStyle=i%2?'#ffffff':'#b22234';t.fillRect(0,i*400/13,760,400/13+1)}
+  t.fillStyle='#3c3b6e';t.fillRect(0,0,304,400*7/13);t.fillStyle='#fff';
+  const star=(x,y,R)=>{t.beginPath();for(let k=0;k<10;k++){const a=-Math.PI/2+k*Math.PI/5,r=k%2?R*.4:R;t.lineTo(x+Math.cos(a)*r,y+Math.sin(a)*r)}t.closePath();t.fill()};
+  for(let r=0;r<9;r++){const six=r%2===0,n=six?6:5;for(let c=0;c<n;c++)star((six?c+.5:c+1)*304/6,(r+.6)*(400*7/13)/9.2,7)}
+  const ctx=cv.getContext('2d'),SW=3;
+  const size=()=>{cv.width=Math.ceil(innerWidth/2);cv.height=Math.ceil(innerHeight/2)};size();addEventListener('resize',size);
+  const draw=ts=>{
+    const W=cv.width,H=cv.height,amp=H*.04,k=2*Math.PI/(W*.7),m=amp*2;
+    ctx.clearRect(0,0,W,H);
+    for(let x=0;x<W;x+=SW){
+      const ph=x*k-ts*.0022,dy=Math.sin(ph)*amp*(.25+.75*x/W),sh=Math.cos(ph);
+      ctx.drawImage(tex,x/W*760,0,SW/W*760,400,x,-m+dy,SW,H+2*m);
+      ctx.fillStyle=sh>0?`rgba(255,255,255,${sh*.16})`:`rgba(0,0,0,${-sh*.32})`;ctx.fillRect(x,0,SW,H);
+    }
+  };
+  const still=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let last=0;const loop=ts=>{usRAF=requestAnimationFrame(loop);if(document.hidden||ts-last<33)return;last=ts;draw(ts)};
+  if(still)draw(1500);else usRAF=requestAnimationFrame(loop);
+}
+function usFlagOff(){cancelAnimationFrame(usRAF);if(usCv){usCv.remove();usCv=null}}
+
 function applyLang(){
-  const en=isEN(),h=document.documentElement;h.lang=en?'en':'ar';h.dir=en?'ltr':'rtl';h.classList.toggle('us',en);
+  const en=isEN(),h=document.documentElement;h.lang=en?'en':'ar';h.dir=en?'ltr':'rtl';h.classList.toggle('us',en);en?usFlagOn():usFlagOff();
   const w=document.createTreeWalker(document.body,4);let n;
   while(n=w.nextNode()){if(en)trNode(n);else if(n._o!==undefined){n.nodeValue=n._o;n._o=undefined}}
   if(en)trNode(document.body);
