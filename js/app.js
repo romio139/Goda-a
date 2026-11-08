@@ -53,7 +53,7 @@ const PASS={exam:70,train:70};
 const ACC=['#18a4f2','#f58a22','#8b5cf6','#19cf93','#e84a93','#ffcf33'];
 
 /* ========= الحالة ========= */
-let S={user:null,name:'',tg:'',accent:ACC[0],done:{},folders:{},res:[],tests:{},media:{},dark:true,isAdmin:false};
+let S={sh:{},user:null,name:'',tg:'',accent:ACC[0],done:{},folders:{},res:[],tests:{},media:{},dark:true,isAdmin:false};
 try{S.dark=localStorage.getItem('dark')!=='0'}catch(e){}
 const $=s=>document.querySelector(s),app=$('#app');
 
@@ -139,7 +139,7 @@ async function loadAll(){
     const u=S.user,pr=doc(db,'users',u.uid);S.name=u.displayName||u.email;let s=await getDoc(pr);
     if(!s.exists()){const nm0=S.pending||u.displayName||u.email,tr0=S.pendTrack||'';await setDoc(pr,{name:nm0,done:{},folders:{},track:tr0,approved:S.isAdmin,rejected:false,ts:serverTimestamp()});if(!S.isAdmin)notify({type:'join',uid:u.uid,name:nm0,track:tr0});s=await getDoc(pr)}
     const p=s.data();S.approved=S.isAdmin||p.approved!==false;S.rejected=!!p.rejected;S.track0=p.track||'';if(p.track&&COURSES[p.track]&&LS.get('cu')!==u.uid){CUR_TRACK=p.track;LS.set('cur_track',CUR_TRACK);LS.set('cu',u.uid)}S.done=p.done||{};S.folders=p.folders||{};S.name=p.name||u.email;S.tg=p.tg||'';S.shareTok=p.shareTok||'';S.accent=p.accent||ACC[0];
-    if(!S.approved)return;S.tests={};const metas=[];(await getDocs(collection(db,'tests'))).forEach(d=>{const x=d.data();S.tests[d.id]=x.qs||[];if(x.meta&&x.meta.trk)metas.push([d.id,x.meta])});discoverTests(metas);
+    if(!S.approved)return;S.tests={};const metas=[];(await getDocs(collection(db,'tests'))).forEach(d=>{const x=d.data();S.tests[d.id]=x.qs||[];S.sh[d.id]=!!x.shared;if(x.meta&&x.meta.trk)metas.push([d.id,x.meta])});discoverTests(metas);
     S.media={};(await getDocs(collection(db,'lessons'))).forEach(d=>S.media[d.id]=d.data());
     S.res=(await getDocs(collection(db,'users',u.uid,'results'))).docs.map(d=>d.data()).sort((a,b)=>(a.ts?.seconds||0)-(b.ts?.seconds||0));
   }catch(e){S.err=e.message;console.error(e)}
@@ -1165,7 +1165,7 @@ function admin(){
         const a=e.target.closest('[data-a]'),g=e.target.closest('[data-g]');
         if(a){const id=a.dataset.id;({
           add:()=>go('add',id,['#at']),imp:()=>go('import',id,['#bt','#jt']),qs:()=>go('qs',id,['#lt']),
-          lk:()=>copyText(tlink(id)),wa:()=>shareTestWA(id),media:()=>go('media',id,['#ls2']),rn:()=>renameTest(id),del:()=>delItem(id)})[a.dataset.a]();return}
+          lk:()=>copyTestLink(id),wa:()=>shareTestWA(id),media:()=>go('media',id,['#ls2']),rn:()=>renameTest(id),del:()=>delItem(id)})[a.dataset.a]();return}
         if(g){const gi=+g.dataset.gi;({newq:()=>addItem(gi,true),newl:()=>addItem(gi,false),ren:()=>renGroup(gi),del:()=>delGroup(gi),newg:addGroup})[g.dataset.g]()}
       };
       if(focusId){const r=el.querySelector('.mr[data-id="'+CSS.escape(focusId)+'"]');if(r){r.classList.add('flash');r.scrollIntoView({block:'center'})}focusId=null}
@@ -1207,16 +1207,18 @@ function admin(){
     };
     const tl=()=>{
       const qz=getAdminQuizzes();
-      $('#tlist').innerHTML=qz.length?qz.map(x=>`<div class="fi in trow"><label class="row" style="flex:1;min-width:0"><input type="checkbox" data-sel="${esc(x.id)}"><span><b>${esc(x.t)}</b> <small class="rb">${(S.tests[x.id]||[]).length} سؤال</small></span></label><span class="row"><button class="btn g sm" data-lk="${esc(x.id)}">🔗 نسخ الرابط</button><button class="btn wa sm" data-wa="${esc(x.id)}">📲 واتساب</button><button class="ib sm" data-rn="${esc(x.id)}" title="إعادة تسمية" aria-label="إعادة تسمية">✏</button><button class="ib sm" data-wp="${esc(x.id)}" title="مسح الأسئلة" aria-label="مسح الأسئلة">🧹</button><button class="ib sm" data-dl="${esc(x.id)}" title="حذف الاختبار" aria-label="حذف الاختبار">🗑</button></span><input class="inp lkin" readonly value="${esc(tlink(x.id))}" aria-label="رابط الاختبار"></div>`).join(''):'<p class="mut">لا توجد اختبارات في هذه الدورة</p>';
+      $('#tlist').innerHTML=qz.length?qz.map(x=>`<div class="fi in trow"><label class="row" style="flex:1;min-width:0"><input type="checkbox" data-sel="${esc(x.id)}"><span><b>${esc(x.t)}</b> <small class="rb">${(S.tests[x.id]||[]).length} سؤال</small> ${S.sh[x.id]?'<small class="rb ok">🔗 مشارك</small>':'<small class="rb">🔒 غير مشارك</small>'}</span></label><span class="row"><button class="btn g sm" data-lk="${esc(x.id)}">🔗 نسخ الرابط</button>${S.sh[x.id]?`<button class="btn danger sm" data-us="${esc(x.id)}">⛔ إيقاف المشاركة</button>`:''}<button class="btn wa sm" data-wa="${esc(x.id)}">📲 واتساب</button><button class="ib sm" data-rn="${esc(x.id)}" title="إعادة تسمية" aria-label="إعادة تسمية">✏</button><button class="ib sm" data-wp="${esc(x.id)}" title="مسح الأسئلة" aria-label="مسح الأسئلة">🧹</button><button class="ib sm" data-dl="${esc(x.id)}" title="حذف الاختبار" aria-label="حذف الاختبار">🗑</button></span><input class="inp lkin" readonly value="${esc(tlink(x.id))}" aria-label="رابط الاختبار"></div>`).join(''):'<p class="mut">لا توجد اختبارات في هذه الدورة</p>';
       $('#tlist').querySelectorAll('[data-sel]').forEach(c=>c.onchange=tlSel);
       $('#tlist').querySelectorAll('[data-rn]').forEach(b=>b.onclick=()=>renameTest(b.dataset.rn));
       $('#tlist').querySelectorAll('[data-wp]').forEach(b=>b.onclick=()=>wipeOne(b.dataset.wp));
       $('#tlist').querySelectorAll('[data-dl]').forEach(b=>b.onclick=()=>delTests([b.dataset.dl]));
-      $('#tlist').querySelectorAll('[data-lk]').forEach(b=>b.onclick=()=>copyText(tlink(b.dataset.lk)));
+      $('#tlist').querySelectorAll('[data-lk]').forEach(b=>b.onclick=()=>copyTestLink(b.dataset.lk));
+      $('#tlist').querySelectorAll('[data-us]').forEach(b=>b.onclick=()=>stopShare(b.dataset.us));
       $('#tlist').querySelectorAll('.lkin').forEach(i=>i.onclick=()=>i.select());
       $('#tlist').querySelectorAll('[data-wa]').forEach(b=>b.onclick=()=>shareTestWA(b.dataset.wa));
       $('#tsel_all').checked=false;tlSel();
     };
+    window.__tl=()=>{if($('#tlist'))tl()};
     $('#tsel_all').onchange=e=>{document.querySelectorAll('[data-sel]').forEach(c=>c.checked=e.target.checked);tlSel()};
     $('#btn_bulk_del').onclick=()=>delTests(selIds());
     $('#btn_new_t').onclick=async()=>{
@@ -1647,7 +1649,19 @@ async function copyText(t){
 }
 const waUrl=t=>'https://wa.me/?text='+encodeURIComponent(t);
 const openWA=t=>window.open(waUrl(t),'_blank','noopener');
-const shareTestWA=id=>{const it=itemById(id);openWA(`📝 ${it?it.t:'اختبار'}\nاختبر نفسك على منصة جوده (بدون الحاجة لتسجيل دخول):\n${tlink(id)}`)};
+/* الاختبار لا يُفتح للزوّار إلا إذا فعّلت مشاركته (حقل shared في وثيقة الاختبار) */
+async function setShared(id,on){
+  try{await setDoc(doc(db,'tests',id),{shared:!!on},{merge:true});S.sh[id]=!!on;if(typeof window.__tl==='function')window.__tl();return true}
+  catch(e){console.error(e);toast('تعذّر تغيير حالة المشاركة — تحقق من قواعد Firestore');return false}
+}
+async function copyTestLink(id){if(await setShared(id,true))copyText(tlink(id))}
+async function shareTestWA(id){
+  const w=window.open('','_blank'); /* نفتح النافذة فوراً حتى لا يحجبها المتصفح */
+  if(!await setShared(id,true)){if(w)w.close();return}
+  const it=itemById(id),msg=`📝 ${it?it.t:'اختبار'}\nاختبر نفسك على منصة جوده (بدون الحاجة لتسجيل دخول):\n${tlink(id)}`;
+  if(w){w.opener=null;w.location.href=waUrl(msg)}else openWA(msg);
+}
+async function stopShare(id){if(await setShared(id,false))toast('أُوقفت مشاركة الاختبار ✓')}
 
 /* زائر: يدخل برابط الاختبار ويكتب اسمه فقط (تسجيل مجهول Anonymous في Firebase) */
 async function loadGuest(){
@@ -1658,11 +1672,17 @@ async function loadGuest(){
       const s=await getDoc(doc(db,'tests',S.gTid));
       if(s.exists()){const x=s.data();S.tests[S.gTid]=x.qs||[];S.gMeta=x.meta||null;if(x.meta&&x.meta.trk)discoverTests([[S.gTid,x.meta]])}
     }
-  }catch(e){S.err=e.message;console.error(e)}
+  }catch(e){S.err=e.code==='permission-denied'?'هذا الاختبار غير متاح عبر الرابط (لم تُفعَّل مشاركته أو أُوقفت). تواصل مع المعلّم.':e.message;console.error(e)}
   /* نستعيد محاولات الزائر السابقة ورمز تقريره، حتى لا يستبدل تقرير ولي الأمر بنتائج هذه الجلسة فقط */
   S.shareTok=LS.get('rtok')||'';
   try{if(S.user)S.res=(await getDocs(collection(db,'users',S.user.uid,'results'))).docs.map(d=>d.data()).sort((a,b)=>(a.ts?.seconds||0)-(b.ts?.seconds||0))}catch(e){console.warn('guest results',e)}
 }
+const guestErr=e=>({
+  'auth/operation-not-allowed':'فعّل تسجيل الدخول المجهول (Anonymous) من لوحة Firebase ← Authentication ← Sign-in method.',
+  'auth/admin-restricted-operation':'تسجيل الدخول المجهول (Anonymous) غير مفعّل. فعّله من Firebase ← Authentication ← Sign-in method ← Anonymous ثم Save.',
+  'auth/unauthorized-domain':'نطاق الموقع غير مسموح. أضِفه في Firebase ← Authentication ← Settings ← Authorized domains.',
+  'auth/network-request-failed':'تحقق من اتصال الإنترنت ثم أعد فتح الرابط.'
+}[e&&e.code]||(/referer|api.?key/i.test((e&&(e.code+' '+e.message))||'')?'مفتاح Firebase API مقيَّد. أضِف نطاق الموقع في Google Cloud ← APIs & Services ← Credentials ← قيود HTTP referrer.':'تعذّر فتح الاختبار. راجع الرمز أدناه وأرسله للمطوّر.'));
 async function sharedRoute(){
   const p=location.hash.split('/'),tid=decodeURIComponent(p[2]||''),md=p[3]==='train'?'train':p[3]==='exam'?'exam':'';
   if(!tid){location.hash='#/';return}
@@ -1670,7 +1690,7 @@ async function sharedRoute(){
   if(!S.user){
     app.innerHTML='<p class="mut" style="text-align:center;margin-top:80px">جارٍ فتح الاختبار...</p>';
     try{await signInAnonymously(auth)}
-    catch(e){console.error(e);app.innerHTML='<div class="card login"><span class="lg" role="img" aria-label="شعار منصة جوده"></span><h2>تعذّر فتح الاختبار</h2><p class="er">'+(e.code==='auth/operation-not-allowed'?'فعّل تسجيل الدخول المجهول (Anonymous) من لوحة Firebase ← Authentication ← Sign-in method.':'تحقق من اتصال الإنترنت ثم أعد فتح الرابط.')+'</p></div>'}
+    catch(e){console.error(e);app.innerHTML='<div class="card login"><span class="lg" role="img" aria-label="شعار منصة جوده"></span><h2>تعذّر فتح الاختبار</h2><p class="er">'+guestErr(e)+'</p><p class="mut sm" dir="ltr" style="margin-top:8px">'+esc(e.code||e.message||'')+'</p></div>'}
     return;
   }
   if(!S.guest&&!S.tests[tid]){
@@ -1683,7 +1703,7 @@ function sharedLanding(tid,md){
   applyLang();
   const it=itemById(tid)||{id:tid,t:(S.gMeta&&S.gMeta.t)||'اختبار'},qs=getQs(tid),n=qs.length;
   app.innerHTML=`<div class="card login"><span class="lg" role="img" aria-label="شعار منصة جوده"></span><h2>${esc(it.t)}</h2>
-  <p class="mut">${n?n+' سؤال':'لا توجد أسئلة في هذا الاختبار بعد'}</p>
+  ${S.err&&!n?'':`<p class="mut">${n?n+' سؤال':'لا توجد أسئلة في هذا الاختبار بعد'}</p>`}
   ${S.guest?`<input id="gnm" placeholder="اكتب اسمك ليظهر في الاختبار" autocomplete="name" maxlength="40" value="${esc(S.name||LS.get('gname')||'')}">`:`<p class="mut">مرحباً ${esc(S.name)}</p>`}
   <p class="er" id="er">${S.err?esc(S.err):''}</p>
   ${n?`<div class="row" style="justify-content:center;flex-wrap:wrap;margin-top:6px">${md!=='train'?'<button class="btn" id="g1">⏱ ابدأ الاختبار</button>':''}${md!=='exam'?'<button class="btn ok" id="g2">📘 ابدأ التدريب</button>':''}</div>`:''}</div>`;
