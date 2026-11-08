@@ -6,7 +6,7 @@ button,input{font:inherit;color:inherit}button{cursor:pointer;border:0}
 :focus-visible{outline:2px solid var(--ac);outline-offset:3px}
 .wrap{max-width:1180px;margin:auto;padding:0 20px}
 .top{position:sticky;top:0;z-index:20;background:var(--bg2);border-bottom:1px solid var(--line)}
-.top .wrap{display:flex;justify-content:space-between;align-items:center;height:64px}
+.top .wrap{display:flex;justify-content:space-between;align-items:center;min-height:64px;flex-wrap:wrap;gap:8px 14px;padding-top:8px;padding-bottom:8px}
 .logo{display:flex;gap:10px;align-items:center;font-weight:700}
 .logo i{width:36px;height:36px;border-radius:11px;background:linear-gradient(135deg,var(--ac),var(--ac2));color:#fff;display:grid;place-items:center;font-style:normal}
 .row{display:flex;gap:8px;align-items:center}
@@ -328,3 +328,19 @@ html[dir=ltr] .bellm{left:auto;right:16px}
 .rvo>span{flex:1;min-width:0}.rvo small{white-space:nowrap}
 .rvo.ok{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 16%,transparent)}
 .rvo.no{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 16%,transparent)}
+
+/* ===== v11: ترويسة لا تُقطع (خصوصاً بالإنجليزية) + مشاركة الروابط + ألوان أزرار المراجعة ===== */
+.top .logo,.top .btn{white-space:nowrap}
+.top .wrap>.row{flex-wrap:wrap;justify-content:flex-end}
+html.us .top{padding-bottom:5px}
+html.us .top .btn{padding:8px 12px;font-size:.9rem}
+.tkbig small{font-size:.7rem;font-weight:600;opacity:.85;direction:ltr;letter-spacing:.3px;margin-top:-2px}
+.btn.wa,.btn.wa:hover{background:#25d366;color:#fff;box-shadow:none}.btn.wa:hover{background:#1ebe5b}
+.ib.wa{background:#25d366;border-color:#25d366;color:#fff}
+.btn.fbt{background:transparent;box-shadow:none;border:1px solid var(--fc);color:var(--fc)}
+.btn.fbt:hover{background:color-mix(in srgb,var(--fc) 18%,transparent)}
+.btn.fbt.on,.btn.fbt.on:hover{background:var(--fc);color:#fff}
+.fbt.all{--fc:var(--ac)}.fbt.no{--fc:var(--bad)}.fbt.bl{--fc:var(--gold)}.btn.fbt.bl.on,.btn.fbt.bl.on:hover{color:#2a2000}
+.rvj.bl{background:color-mix(in srgb,var(--gold) 22%,transparent);border-color:var(--gold)}
+.trow{flex-wrap:wrap}.trow .lkin{flex:1 1 100%;min-width:0;direction:ltr;font-size:.8rem;padding:6px 10px}
+body.guest #fb,body.guest #fa,body.guest #fp{display:none}

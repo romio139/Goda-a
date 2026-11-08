@@ -1,7 +1,7 @@
 import {firebaseConfig,ADMIN_UID,TG,SHUFFLE} from './config.js';
 import {svg,LAWS} from './laws.js';
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,signOut,sendPasswordResetEmail,updateProfile} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,signInAnonymously,signOut,sendPasswordResetEmail,updateProfile} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {getFirestore,doc,getDoc,setDoc,updateDoc,addDoc,deleteDoc,collection,collectionGroup,getDocs,serverTimestamp,writeBatch,onSnapshot,query,orderBy,limit} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
 
@@ -100,7 +100,7 @@ function toast(m){let t=$('#toast');if(!t){t=document.createElement('div');t.id=
 const ready=firebaseConfig.apiKey!=='YOUR_API_KEY';
 let auth,db;
 if(ready){const a=initializeApp(firebaseConfig);auth=getAuth(a);db=getFirestore(a)}
-const saveUser=p=>updateDoc(doc(db,'users',S.user.uid),p).catch(e=>{console.error(e);toast('تعذر الحفظ — تحقق من الاتصال')});
+const saveUser=p=>S.guest?Promise.resolve():updateDoc(doc(db,'users',S.user.uid),p).catch(e=>{console.error(e);toast('تعذر الحفظ — تحقق من الاتصال')});
 const notify=p=>addDoc(collection(db,'notifications'),{...p,ts:serverTimestamp(),read:false}).catch(e=>console.warn('notify',e));
 
 async function loadStructure(){
@@ -138,7 +138,7 @@ async function loadAll(){
     await loadStructure();
     const u=S.user,pr=doc(db,'users',u.uid);S.name=u.displayName||u.email;let s=await getDoc(pr);
     if(!s.exists()){const nm0=S.pending||u.displayName||u.email,tr0=S.pendTrack||'';await setDoc(pr,{name:nm0,done:{},folders:{},track:tr0,approved:S.isAdmin,rejected:false,ts:serverTimestamp()});if(!S.isAdmin)notify({type:'join',uid:u.uid,name:nm0,track:tr0});s=await getDoc(pr)}
-    const p=s.data();S.approved=S.isAdmin||p.approved!==false;S.rejected=!!p.rejected;S.track0=p.track||'';if(p.track&&COURSES[p.track]&&LS.get('cu')!==u.uid){CUR_TRACK=p.track;LS.set('cur_track',CUR_TRACK);LS.set('cu',u.uid)}S.done=p.done||{};S.folders=p.folders||{};S.name=p.name||u.email;S.tg=p.tg||'';S.accent=p.accent||ACC[0];
+    const p=s.data();S.approved=S.isAdmin||p.approved!==false;S.rejected=!!p.rejected;S.track0=p.track||'';if(p.track&&COURSES[p.track]&&LS.get('cu')!==u.uid){CUR_TRACK=p.track;LS.set('cur_track',CUR_TRACK);LS.set('cu',u.uid)}S.done=p.done||{};S.folders=p.folders||{};S.name=p.name||u.email;S.tg=p.tg||'';S.shareTok=p.shareTok||'';S.accent=p.accent||ACC[0];
     if(!S.approved)return;S.tests={};const metas=[];(await getDocs(collection(db,'tests'))).forEach(d=>{const x=d.data();S.tests[d.id]=x.qs||[];if(x.meta&&x.meta.trk)metas.push([d.id,x.meta])});discoverTests(metas);
     S.media={};(await getDocs(collection(db,'lessons'))).forEach(d=>S.media[d.id]=d.data());
     S.res=(await getDocs(collection(db,'users',u.uid,'results'))).docs.map(d=>d.data()).sort((a,b)=>(a.ts?.seconds||0)-(b.ts?.seconds||0));
@@ -171,7 +171,11 @@ $('#out').onclick=()=>signOut(auth);
 /* ========= الموجّه ========= */
 function route(){
   clearInterval(timer);clearInterval(S.pt);if(!location.hash.startsWith('#/quiz/'))leaveFS();applyLang();
-  $('#out').hidden=!S.user;$('#nv').hidden=!S.user||(!S.approved&&!S.isAdmin);$('#ad').hidden=!S.isAdmin;$('#adr').hidden=!S.isAdmin;$('#bellw').hidden=!S.isAdmin;
+  $('#out').hidden=!S.user||S.guest;$('#nv').hidden=!S.user||S.guest||(!S.approved&&!S.isAdmin);$('#ad').hidden=!S.isAdmin;$('#adr').hidden=!S.isAdmin;$('#bellw').hidden=!S.isAdmin;
+  const h0=location.hash;
+  if(h0.startsWith('#/r/'))return reportPage(h0.split('/')[2]||'');
+  if(h0.startsWith('#/t/'))return sharedRoute();
+  if(S.guest){if(h0==='#/result')return result();if(h0.startsWith('#/quiz/'))return quizRoute(h0.replace('#/',''));if(S.gTid){location.hash='#/t/'+S.gTid;return}signOut(auth);return}
   if(!S.user)return login();
   if(!S.approved&&!S.isAdmin)return pending();
   const h=location.hash.replace('#/','')||'';
@@ -195,6 +199,8 @@ function route(){
 addEventListener('hashchange',route);
 
 /* ========= الدخول ========= */
+const EMAIL_RE=/^[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}$/;
+const okEmail=e=>EMAIL_RE.test(e)&&!e.includes('..')&&!/^\.|\.@/.test(e);
 const ERR={'auth/invalid-credential':'البريد أو كلمة المرور غير صحيحة','auth/email-already-in-use':'هذا البريد مسجّل مسبقاً','auth/weak-password':'كلمة المرور ضعيفة (6 أحرف على الأقل)','auth/invalid-email':'البريد الإلكتروني غير صالح','auth/too-many-requests':'محاولات كثيرة، حاول لاحقاً','auth/network-request-failed':'تحقق من اتصال الإنترنت'};
 function pending(){
   app.innerHTML=`<div class="card login"><span class="lg" role="img" aria-label="شعار"></span><h2>${S.rejected?'تعذّر قبول طلبك':'طلبك قيد المراجعة ⏳'}</h2><p class="mut">${S.rejected?'تم رفض طلب الانضمام. تواصل مع المدرّس.':'تم إنشاء حسابك بنجاح، وبانتظار موافقة المدرّس على دخولك إلى <b>'+esc(trName(S.track0))+'</b>. اضغط «تحديث» بعد الموافقة.'}</p><div class="row" style="justify-content:center;margin-top:14px"><button class="btn" id="rf">🔄 تحديث الحالة</button></div></div>`;
@@ -245,6 +251,7 @@ function login(){
   const go=async()=>{
     const em=$('#em').value.trim(),pw=$('#pw').value,nm=$('#nm').value.trim();
     if(!em||!pw)return $('#er').textContent='أدخل البريد وكلمة المرور';
+    if(reg?!okEmail(em):!/^\S+@\S+$/.test(em))return $('#er').textContent='صيغة البريد الإلكتروني غير صحيحة (مثال: name@example.com)';
     if(reg&&!nm)return $('#er').textContent='أدخل الاسم';
     if(reg&&!$('#rc').value)return $('#er').textContent='اختر الدورة التي تريد الدخول إليها';
     if(reg&&['stages','american'].includes($('#rc').value)&&!$('#rg2').value)return $('#er').textContent='اختر الصف الدراسي';
@@ -270,14 +277,15 @@ function dash(){
   ${S.err?`<p class="er">${/permission/i.test(S.err)?'لم تُنشر قواعد Firestore بعد (أو لم تُضبط على حسابك). انسخ المعرّف أدناه وأرسله للمطوّر.':'تعذر تحميل البيانات: '+esc(S.err)}</p>`:''}
   
   
-  <div class="tkgrid">${TR.filter(([k])=>S.isAdmin||!S.track0||(S.track0.startsWith('st_')?k==='stages':S.track0.startsWith('am_')?k==='american':k===S.track0)).map(([k,i,n])=>`<button class="tkbig ${curTop()===k?'active':''}" data-tk="${k}"><span>${i}</span><b>${n}</b></button>`).join('')}</div>
+  <div class="tkgrid">${TR.filter(([k])=>S.isAdmin||!S.track0||(S.track0.startsWith('st_')?k==='stages':S.track0.startsWith('am_')?k==='american':k===S.track0)).map(([k,i,n])=>`<button class="tkbig ${curTop()===k?'active':''}" data-tk="${k}"><span>${i}</span><b>${n}</b>${k==='gat'?'<small>General Ability Test</small>':''}</button>`).join('')}</div>
 
   <div class="card cc"><div class="th"><span class="lg" style="width:58px;height:58px;border-radius:16px" role="img" aria-label="شعار منصة جوده"></span><span>${esc(cTitle)}</span></div><div><h3>${esc(cTitle)}</h3><p class="mut">تقدمك ${pct()}%</p><div class="bar"><i style="width:${pct()}%"></i></div></div>
   <a class="btn" href="#/course/${CUR_TRACK}">متابعة التعلّم ◀</a></div><br>
   <div class="grid g3"><div class="card stat"><b>${r.length}</b>محاولة</div><div class="card stat"><b>${a}%</b>المتوسط</div><div class="card stat"><b>${b}%</b>الأعلى</div></div><br>
-  <div class="card"><h3>سجل المحاولات</h3>${r.length?resTable(r):'<p class="mut">لا توجد محاولات بعد. ابدأ أول اختبار!</p>'}</div>
+  <div class="card"><div class="qh"><h3>سجل المحاولات</h3><div class="row" style="flex-wrap:wrap"><button class="btn g sm" id="shc">🔗 نسخ رابط النتائج</button><button class="btn wa sm" id="shw">📲 مشاركة عبر واتساب</button></div></div>${r.length?resTable(r):'<p class="mut">لا توجد محاولات بعد. ابدأ أول اختبار!</p>'}</div>
 `;
   document.querySelectorAll('[data-tk]').forEach(b=>b.onclick=()=>pickTrack(b.dataset.tk));
+  $('#shc').onclick=()=>shareReport('copy');$('#shw').onclick=()=>shareReport('wa');
 }
 
 /* ========= الدورة ========= */
@@ -690,18 +698,19 @@ function finish(){
   clearInterval(timer);closeLayers();
   const n=Q.qs.length,c=Q.ans.filter((a,k)=>a===Q.qs[k].a).length,bl=Q.ans.filter(a=>a===null).length,fg=Q.flag.filter(Boolean).length,s=Math.round((Date.now()-Q.t0)/1000);
   Q.out={c,n,p:Math.round(c/n*100),bl,wr:n-c-bl,fg,s};
-  const r={t:Q.it.t,tid:Q.it.id,m:Q.mode,c,n,p:Q.out.p,bl,fg,s,d:new Date().toLocaleString('ar-SA',{dateStyle:'medium',timeStyle:'short'}),uid:S.user.uid,name:S.name,sec:secOf(Q.it.id)};
+  const r={t:Q.it.t,tid:Q.it.id,m:Q.mode,c,n,p:Q.out.p,bl,fg,s,d:new Date().toLocaleString('ar-SA',{dateStyle:'medium',timeStyle:'short'}),uid:S.user.uid,name:S.guest?S.name+' (زائر)':S.name,sec:secOf(Q.it.id)};
   S.res.push(r);
   if(Q.it.id!=='folder'){
     if(Q.out.p>=PASS.train&&!S.done[Q.it.id]){S.done[Q.it.id]=true;saveUser({['done.'+Q.it.id]:true})}
   }
   /* نحفظ نسخة الأسئلة بترتيبها وخياراتها كما ظهرت للطالب + اختياره، ليراجع المدير الحل لاحقاً */
   const det=Q.qs.map((q,k)=>({id:q.id||'',q:q.q||'',o:(q.o||[]).map(String),a:q.a??null,s:Q.ans[k]??null,e:q.e||'',img:!!q.img}));
-  const nf=(Q.it.id!=='folder'&&!S.isAdmin)?{type:'exam',uid:S.user.uid,name:S.name,test:Q.it.t,tid:Q.it.id,p:Q.out.p,m:Q.mode}:null;
+  const nf=(Q.it.id!=='folder'&&!S.isAdmin)?{type:'exam',uid:S.user.uid,name:S.guest?S.name+' (زائر)':S.name,test:Q.it.t,tid:Q.it.id,p:Q.out.p,m:Q.mode}:null;
   const saveRes=x=>addDoc(collection(db,'users',S.user.uid,'results'),{...x,ts:serverTimestamp()});
   saveRes({...r,det}).catch(e=>{console.warn('det rejected',e);return saveRes(r)})
     .then(ref=>{if(nf)notify({...nf,rid:ref.id})})
     .catch(e=>{console.error(e);toast('تعذر حفظ النتيجة');if(nf)notify(nf)});
+  if(S.shareTok)syncReport();
   if(location.hash==='#/result')result();else location.hash='#/result';
 }
 function result(){
@@ -710,10 +719,10 @@ function result(){
   app.innerHTML=`<div class="card score"><h2>${esc(Q.it.t)}</h2><b>${o.p}%</b><p class="mut">${o.c} صحيحة من ${o.n}</p>
   <p style="color:var(--${ok?'ok':'bad'});font-weight:700">${ok?'✓ حققت الحد الأدنى للنجاح':'لم تصل للحد الأدنى ('+PASS[Q.mode]+'%) — أعد المحاولة'}</p>
   <div class="grid g4" style="margin:14px 0"><div class="card stat"><b style="color:var(--ok)">${o.c}</b>صحيح</div><div class="card stat"><b style="color:var(--bad)">${o.wr}</b>خطأ</div><div class="card stat"><b>${o.bl}</b>فارغ</div><div class="card stat"><b style="font-size:1.2rem">${fmtDur(o.s)}</b>المدة</div></div>
-  <div class="row" style="justify-content:center;margin-top:8px"><button class="btn" id="rt">أعد المحاولة</button><button class="btn g" id="rpr">🖨 طباعة النتيجة</button><a class="btn g" href="#/course/${CUR_TRACK}">العودة للدورة</a></div></div><br>
+  <div class="row" style="justify-content:center;margin-top:8px"><button class="btn" id="rt">أعد المحاولة</button><button class="btn g" id="rpr">🖨 طباعة النتيجة</button><button class="btn wa" id="rsw">📲 إرسال النتائج لولي الأمر</button>${S.guest?`<a class="btn g" href="#/t/${esc(encodeURIComponent(S.gTid||''))}">العودة</a>`:`<a class="btn g" href="#/course/${CUR_TRACK}">العودة للدورة</a>`}</div></div><br>
   <div class="card"><h3>مراجعة الإجابات</h3>${Q.qs.map((q,k)=>{const a=Q.ans[k],g=a===q.a;return`<div class="rv"><p><b>${k+1}.</b> ${mt(q.q)}</p>${q.img?`<img class="qi2" data-q="${q.id}" alt="">`:''}
    <p style="color:var(--${g?'ok':'bad'})">إجابتك: ${a===null?'لم تجب':L[a]+(q.o[a]?' — '+mt(q.o[a]):'')}</p>${g?'':`<p style="color:var(--ok)">الصحيح: ${L[q.a]}${q.o[q.a]?' — '+mt(q.o[q.a]):''}</p>`}${q.e?`<p class="mut">${mt(q.e)}</p>`:''}</div>`}).join('')}</div>`;
-  $('#rt').onclick=()=>startQuiz(Q.it,Q.qs,Q.mode);$('#rpr').onclick=()=>window.print();fillImgs();
+  $('#rt').onclick=()=>startQuiz(Q.it,Q.qs,Q.mode);$('#rpr').onclick=()=>window.print();$('#rsw').onclick=()=>shareReport('wa');fillImgs();
 }
 
 const showFeatures=()=>modal({icon:'⚡',html:`<h3>المميزات</h3><div class="fgrid2">
@@ -1147,7 +1156,7 @@ function admin(){
     const mapRow=x=>{
       const m=S.media[x.id]||{},nf=(m.files||[]).length,n=(S.tests[x.id]||[]).length,id=esc(x.id);
       return `<div class="mr" data-id="${id}"><div class="mrt"><b>${esc(x.t)}</b> ${x.quiz?`<small class="rb ${n?'':'bad'}">${n} سؤال</small>`:'<small class="rb">درس</small>'}${m.video?'<small class="rb gold">🎥 فيديو</small>':''}${nf?`<small class="rb">📎 ${nf}</small>`:''}</div>
-        <div class="row" style="flex-wrap:wrap">${x.quiz?`<button class="btn sm" data-a="add" data-id="${id}">➕ سؤال</button><button class="btn g sm" data-a="imp" data-id="${id}">📥 استيراد</button><button class="btn g sm" data-a="qs" data-id="${id}">📝 الأسئلة</button>`:''}<button class="btn g sm" data-a="media" data-id="${id}">🎥 فيديو وملفات</button><button class="ib sm" data-a="rn" data-id="${id}" title="إعادة تسمية" aria-label="إعادة تسمية">✏</button><button class="ib sm" data-a="del" data-id="${id}" title="حذف" aria-label="حذف">🗑</button></div></div>`;
+        <div class="row" style="flex-wrap:wrap">${x.quiz?`<button class="btn sm" data-a="add" data-id="${id}">➕ سؤال</button><button class="btn g sm" data-a="imp" data-id="${id}">📥 استيراد</button><button class="btn g sm" data-a="qs" data-id="${id}">📝 الأسئلة</button><button class="ib sm" data-a="lk" data-id="${id}" title="نسخ رابط الاختبار" aria-label="نسخ رابط الاختبار">🔗</button><button class="ib sm wa" data-a="wa" data-id="${id}" title="مشاركة الرابط عبر واتساب" aria-label="مشاركة الرابط عبر واتساب">📲</button>`:''}<button class="btn g sm" data-a="media" data-id="${id}">🎥 فيديو وملفات</button><button class="ib sm" data-a="rn" data-id="${id}" title="إعادة تسمية" aria-label="إعادة تسمية">✏</button><button class="ib sm" data-a="del" data-id="${id}" title="حذف" aria-label="حذف">🗑</button></div></div>`;
     };
     const mapRender=()=>{
       const el=$('#hubmap'),c=COURSES[adminTrack];if(!el||!c)return;
@@ -1156,7 +1165,7 @@ function admin(){
         const a=e.target.closest('[data-a]'),g=e.target.closest('[data-g]');
         if(a){const id=a.dataset.id;({
           add:()=>go('add',id,['#at']),imp:()=>go('import',id,['#bt','#jt']),qs:()=>go('qs',id,['#lt']),
-          media:()=>go('media',id,['#ls2']),rn:()=>renameTest(id),del:()=>delItem(id)})[a.dataset.a]();return}
+          lk:()=>copyText(tlink(id)),wa:()=>shareTestWA(id),media:()=>go('media',id,['#ls2']),rn:()=>renameTest(id),del:()=>delItem(id)})[a.dataset.a]();return}
         if(g){const gi=+g.dataset.gi;({newq:()=>addItem(gi,true),newl:()=>addItem(gi,false),ren:()=>renGroup(gi),del:()=>delGroup(gi),newg:addGroup})[g.dataset.g]()}
       };
       if(focusId){const r=el.querySelector('.mr[data-id="'+CSS.escape(focusId)+'"]');if(r){r.classList.add('flash');r.scrollIntoView({block:'center'})}focusId=null}
@@ -1198,11 +1207,14 @@ function admin(){
     };
     const tl=()=>{
       const qz=getAdminQuizzes();
-      $('#tlist').innerHTML=qz.length?qz.map(x=>`<div class="fi in trow"><label class="row" style="flex:1;min-width:0"><input type="checkbox" data-sel="${esc(x.id)}"><span><b>${esc(x.t)}</b> <small class="rb">${(S.tests[x.id]||[]).length} سؤال</small></span></label><span class="row"><button class="ib sm" data-rn="${esc(x.id)}" title="إعادة تسمية" aria-label="إعادة تسمية">✏</button><button class="ib sm" data-wp="${esc(x.id)}" title="مسح الأسئلة" aria-label="مسح الأسئلة">🧹</button><button class="ib sm" data-dl="${esc(x.id)}" title="حذف الاختبار" aria-label="حذف الاختبار">🗑</button></span></div>`).join(''):'<p class="mut">لا توجد اختبارات في هذه الدورة</p>';
+      $('#tlist').innerHTML=qz.length?qz.map(x=>`<div class="fi in trow"><label class="row" style="flex:1;min-width:0"><input type="checkbox" data-sel="${esc(x.id)}"><span><b>${esc(x.t)}</b> <small class="rb">${(S.tests[x.id]||[]).length} سؤال</small></span></label><span class="row"><button class="btn g sm" data-lk="${esc(x.id)}">🔗 نسخ الرابط</button><button class="btn wa sm" data-wa="${esc(x.id)}">📲 واتساب</button><button class="ib sm" data-rn="${esc(x.id)}" title="إعادة تسمية" aria-label="إعادة تسمية">✏</button><button class="ib sm" data-wp="${esc(x.id)}" title="مسح الأسئلة" aria-label="مسح الأسئلة">🧹</button><button class="ib sm" data-dl="${esc(x.id)}" title="حذف الاختبار" aria-label="حذف الاختبار">🗑</button></span><input class="inp lkin" readonly value="${esc(tlink(x.id))}" aria-label="رابط الاختبار"></div>`).join(''):'<p class="mut">لا توجد اختبارات في هذه الدورة</p>';
       $('#tlist').querySelectorAll('[data-sel]').forEach(c=>c.onchange=tlSel);
       $('#tlist').querySelectorAll('[data-rn]').forEach(b=>b.onclick=()=>renameTest(b.dataset.rn));
       $('#tlist').querySelectorAll('[data-wp]').forEach(b=>b.onclick=()=>wipeOne(b.dataset.wp));
       $('#tlist').querySelectorAll('[data-dl]').forEach(b=>b.onclick=()=>delTests([b.dataset.dl]));
+      $('#tlist').querySelectorAll('[data-lk]').forEach(b=>b.onclick=()=>copyText(tlink(b.dataset.lk)));
+      $('#tlist').querySelectorAll('.lkin').forEach(i=>i.onclick=()=>i.select());
+      $('#tlist').querySelectorAll('[data-wa]').forEach(b=>b.onclick=()=>shareTestWA(b.dataset.wa));
       $('#tsel_all').checked=false;tlSel();
     };
     $('#tsel_all').onchange=e=>{document.querySelectorAll('[data-sel]').forEach(c=>c.checked=e.target.checked);tlSel()};
@@ -1501,7 +1513,7 @@ async function resultsPage(){
 }
 
 /* ========= الإنجليزية (GAT / American) ========= */
-const EN_D={'منصة جوده':'Goda Platform','📁 مجلداتي':'📁 My Folders','🔍 بحث':'🔍 Search','👤 ملفي':'👤 Profile','⚙ إدارة':'⚙ Admin','خروج':'Sign out','تابع من حيث توقفت':'Pick up where you left off','متابعة التعلّم ◀':'Continue learning ▶','محاولة':'Attempts','المتوسط':'Average','الأعلى':'Best','سجل المحاولات':'Attempt history','لا توجد محاولات بعد. ابدأ أول اختبار!':'No attempts yet. Start your first test!','الاختبار':'Test','النتيجة':'Score','التاريخ':'Date','المدة':'Duration','صحيح / خطأ / فارغ / مؤجل':'Correct / Wrong / Blank / Flagged','النوع':'Type','تدريب':'Practice','محاكي':'Simulated','دورة المحوسب':'Computerized Course','دورة التأسيس':'Foundation Course','التحصيلي':'Tahsili','المراحل التعليمية':'Educational Stages','تم إكمال الدرس ✓':'Mark lesson complete ✓','إلغاء الإكمال':'Undo complete','🖨 طباعة الاختبار':'🖨 Print test','⏱ اختبار محاكي':'⏱ Simulated Exam','📘 التدريب الإلكتروني':'📘 Online Practice','📘 تدريب إلكتروني':'📘 Online Practice','دقيقة واحدة لكل سؤال':'One minute per question','تحقق فوري من الحل':'Instant answer check','شرح بعد كل سؤال':'Explanation after each question','ابدأ الآن ▶':'Start now ▶','آخر محاولة':'Last attempt','⚡ المميزات':'⚡ Features','ابحث باسماء الدروس':'Search lessons','عدد الأسئلة الكلي':'Total questions','المحلولة':'Answered','غير المحلولة':'Unanswered','تعليمات الاختبار':'Exam Instructions','تعليمات القسم':'Section Instructions','📐 القوانين':'📐 Formulas','إنهاء الاختبار':'Finish Exam','القسم الحالي: الكمي':'Current section: Quantitative','التحقق من الحل':'Check Answer','📁 إضافة إلى مجلد':'📁 Add to folder','🔖 ضع مؤشر كعلامة مرجعية':'🔖 Bookmark','🔖 إلغاء العلامة المرجعية':'🔖 Remove bookmark','السؤال السابق':'Previous','التالي ◀':'Next ▶','حسناً':'OK','تأكيد':'Confirm','إلغاء':'Cancel','لم تقم بحلّ هذا السؤال، هل تريد المتابعة؟':'You have not answered this question. Continue?','هل تريد إنهاء الاختبار وعرض النتيجة؟':'Finish the exam and view the result?','لديك':'You have','سؤال غير محلول. هل تريد إنهاء الاختبار؟':'unanswered question(s). Finish the exam?','✓ حققت الحد الأدنى للنجاح':'✓ You reached the passing score','صحيح':'Correct','خطأ':'Wrong','فارغ':'Blank','أعد المحاولة':'Try again','🖨 طباعة النتيجة':'🖨 Print result','العودة للدورة':'Back to course','مراجعة الإجابات':'Review answers','لم تجب':'Not answered','إجابة صحيحة ✓':'Correct answer ✓','إجابة خاطئة':'Wrong answer','لم تختر إجابة.':'No answer selected.','المميزات':'Features','إغلاق':'Close','ملفات الدرس':'Lesson files','📎 ملفات الدرس':'📎 Lesson files','تعذر الحفظ — تحقق من الاتصال':'Could not save — check your connection','لا توجد أسئلة':'No questions','أُضيف إلى «':'Added to «','الصحيح:':'Correct:'};
+const EN_D={'منصة جوده':'Goda Platform','📁 مجلداتي':'📁 My Folders','🔍 بحث':'🔍 Search','👤 ملفي':'👤 Profile','⚙ إدارة':'⚙ Admin','خروج':'Sign out','تابع من حيث توقفت':'Pick up where you left off','متابعة التعلّم ◀':'Continue learning ▶','محاولة':'Attempts','المتوسط':'Average','الأعلى':'Best','سجل المحاولات':'Attempt history','🔗 نسخ رابط النتائج':'🔗 Copy results link','📲 مشاركة عبر واتساب':'📲 Share on WhatsApp','📲 إرسال النتائج لولي الأمر':'📲 Send results to parent','📊 النتائج':'📊 Results','لا توجد محاولات بعد. ابدأ أول اختبار!':'No attempts yet. Start your first test!','الاختبار':'Test','النتيجة':'Score','التاريخ':'Date','المدة':'Duration','صحيح / خطأ / فارغ / مؤجل':'Correct / Wrong / Blank / Flagged','النوع':'Type','تدريب':'Practice','محاكي':'Simulated','دورة المحوسب':'Computerized Course','دورة التأسيس':'Foundation Course','التحصيلي':'Tahsili','المراحل التعليمية':'Educational Stages','تم إكمال الدرس ✓':'Mark lesson complete ✓','إلغاء الإكمال':'Undo complete','🖨 طباعة الاختبار':'🖨 Print test','⏱ اختبار محاكي':'⏱ Simulated Exam','📘 التدريب الإلكتروني':'📘 Online Practice','📘 تدريب إلكتروني':'📘 Online Practice','دقيقة واحدة لكل سؤال':'One minute per question','تحقق فوري من الحل':'Instant answer check','شرح بعد كل سؤال':'Explanation after each question','ابدأ الآن ▶':'Start now ▶','آخر محاولة':'Last attempt','⚡ المميزات':'⚡ Features','ابحث باسماء الدروس':'Search lessons','عدد الأسئلة الكلي':'Total questions','المحلولة':'Answered','غير المحلولة':'Unanswered','تعليمات الاختبار':'Exam Instructions','تعليمات القسم':'Section Instructions','📐 القوانين':'📐 Formulas','إنهاء الاختبار':'Finish Exam','القسم الحالي: الكمي':'Current section: Quantitative','التحقق من الحل':'Check Answer','📁 إضافة إلى مجلد':'📁 Add to folder','🔖 ضع مؤشر كعلامة مرجعية':'🔖 Bookmark','🔖 إلغاء العلامة المرجعية':'🔖 Remove bookmark','السؤال السابق':'Previous','التالي ◀':'Next ▶','حسناً':'OK','تأكيد':'Confirm','إلغاء':'Cancel','لم تقم بحلّ هذا السؤال، هل تريد المتابعة؟':'You have not answered this question. Continue?','هل تريد إنهاء الاختبار وعرض النتيجة؟':'Finish the exam and view the result?','لديك':'You have','سؤال غير محلول. هل تريد إنهاء الاختبار؟':'unanswered question(s). Finish the exam?','✓ حققت الحد الأدنى للنجاح':'✓ You reached the passing score','صحيح':'Correct','خطأ':'Wrong','فارغ':'Blank','أعد المحاولة':'Try again','🖨 طباعة النتيجة':'🖨 Print result','العودة للدورة':'Back to course','مراجعة الإجابات':'Review answers','لم تجب':'Not answered','إجابة صحيحة ✓':'Correct answer ✓','إجابة خاطئة':'Wrong answer','لم تختر إجابة.':'No answer selected.','المميزات':'Features','إغلاق':'Close','ملفات الدرس':'Lesson files','📎 ملفات الدرس':'📎 Lesson files','تعذر الحفظ — تحقق من الاتصال':'Could not save — check your connection','لا توجد أسئلة':'No questions','أُضيف إلى «':'Added to «','الصحيح:':'Correct:'};
 const EN_R=[[/^تقدمك (\d+)%$/,'Your progress $1%'],[/^مرحباً (.+)$/,'Welcome $1'],[/^(\d+) سؤال$/,'$1 questions'],[/^عدد (\d+) سؤال$/,'$1 questions'],[/^الاختبار — (\d+) سؤال$/,'Test — $1 questions'],[/^الحد الأدنى (\d+)%$/,'Minimum $1%'],[/^السؤال رقم (\d+)$/,'Question $1'],[/^مجموع الأسئلة في الاختبار (\d+)$/,'Total questions in the test: $1'],[/^(\d+) صحيحة من (\d+)$/,'$1 correct out of $2'],[/^لم تصل للحد الأدنى \((\d+)%\) — أعد المحاولة$/,'Below the passing score ($1%) — try again'],[/^إجابتك: لم تجب$/,'Your answer: not answered'],[/^إجابتك: /,'Your answer: '],[/^الصحيح: /,'Correct: '],[/^الإجابة الصحيحة: /,'Correct answer: '],[/^📘 تدريب إلكتروني$/,'📘 Online Practice']];
 function tx(k){if(EN_D[k])return EN_D[k];for(const[r,v]of EN_R)if(r.test(k))return k.replace(r,v);return null}
 function trNode(n){
@@ -1549,7 +1561,7 @@ new MutationObserver(ms=>{if(isEN())ms.forEach(m=>m.addedNodes.forEach(trNode))}
 let RV_HINT=null;
 async function reviewPage(h){
   if(!S.isAdmin){location.hash='#/';return}
-  const [,uid,rid]=h.split('/'),back='<a class="btn g sm" href="#/results">◀ نتائج الطلاب</a>';
+  const [,uid,rid]=h.split('/'),back='<a class="btn sm" href="#/results">◀ نتائج الطلاب</a>';
   app.innerHTML='<div class="card"><p class="mut">جارٍ تحميل محاولة الطالب...</p></div>';
   let all;
   try{
@@ -1566,12 +1578,12 @@ async function reviewPage(h){
   let flt='all';
   const draw=()=>{
     const pass=r.p>=PASS[r.m==='train'?'train':'exam'];
-    app.innerHTML=`<div class="qh"><div><h2>🔍 مراجعة حل الطالب</h2><p class="mut">${esc(r.name||'—')} — ${esc(r.t)}</p></div><div class="row" style="flex-wrap:wrap">${back}<button class="btn g sm" id="rvp">🖨 طباعة</button></div></div>
+    app.innerHTML=`<div class="qh"><div><h2>🔍 مراجعة حل الطالب</h2><p class="mut">${esc(r.name||'—')} — ${esc(r.t)}</p></div><div class="row" style="flex-wrap:wrap">${back}<button class="btn ok sm" id="rvp">🖨 طباعة</button></div></div>
     <div class="card" style="margin:12px 0"><div class="grid g4"><div class="card stat"><b style="color:var(--${pass?'ok':'bad'})">${r.p}%</b>النتيجة</div><div class="card stat"><b style="color:var(--ok)">${det?cnt.ok:r.c}</b>صحيح</div><div class="card stat"><b style="color:var(--bad)">${det?cnt.no:(r.n-r.c-(r.bl||0))}</b>خطأ</div><div class="card stat"><b>${det?cnt.bl:(r.bl||0)}</b>فارغ</div></div>
     <p class="mut sm" style="margin-top:10px">${esc(r.sec||secOf(r.tid))} • ${r.m==='train'?'تدريب':'محاكي'} • ${r.s!=null?'المدة '+fmtDur(r.s)+' • ':''}${esc(r.d||'')}</p>
     ${all.length>1?`<select class="inp" id="rvs" style="width:100%;margin-top:6px">${all.map(x=>`<option value="${esc(x._id)}" ${x._id===r._id?'selected':''}>${esc(x.t)} — ${x.p}% — ${esc(x.d||'')}</option>`).join('')}</select>`:''}</div>
     ${det?`<div class="card" style="margin-bottom:12px"><div class="row" style="flex-wrap:wrap;gap:6px">${det.map((q,k)=>`<button class="rvj ${st(q)}" data-j="${k}" title="سؤال ${k+1}">${k+1}</button>`).join('')}</div>
-    <div class="row" style="flex-wrap:wrap;margin-top:10px"><button class="btn sm ${flt==='all'?'':'g'}" data-f="all">الكل (${det.length})</button><button class="btn sm ${flt==='no'?'':'g'}" data-f="no">الأخطاء فقط (${cnt.no})</button><button class="btn sm ${flt==='bl'?'':'g'}" data-f="bl">لم يُجب (${cnt.bl})</button></div></div>
+    <div class="row" style="flex-wrap:wrap;margin-top:10px"><button class="btn sm fbt all ${flt==='all'?'on':''}" data-f="all">الكل (${det.length})</button><button class="btn sm fbt no ${flt==='no'?'on':''}" data-f="no">الأخطاء فقط (${cnt.no})</button><button class="btn sm fbt bl ${flt==='bl'?'on':''}" data-f="bl">لم يُجب (${cnt.bl})</button></div></div>
     ${det.map((q,k)=>({q,k})).filter(x=>flt==='all'||st(x.q)===flt).map(({q,k})=>`<div class="card rvq ${st(q)}" id="rvq${k}"><div class="qh"><b>السؤال ${k+1}</b><span class="rb ${st(q)==='ok'?'ok':st(q)==='no'?'bad':''}">${st(q)==='ok'?'✓ صحيح':st(q)==='no'?'✕ خطأ':'— لم يُجب'}</span></div>
       ${q.img?`<img class="qi2" data-q="${esc(q.id)}" alt="">`:''}${q.q?`<p>${mt(q.q)}</p>`:''}
       ${q.o.map((o,j)=>`<div class="rvo ${j===q.a?'ok':''} ${j===q.s&&j!==q.a?'no':''}"><b>${L[j]}</b><span>${o?mt(o):''}</span><small>${j===q.a?'✓ الإجابة الصحيحة':''}${j===q.s?(j===q.a?' • اختيار الطالب':'✕ اختيار الطالب'):''}</small></div>`).join('')}
@@ -1623,8 +1635,102 @@ function stopBell(){if(bellUnsub){bellUnsub();bellUnsub=null}NOTIFS=[];const m=$
 $('#bell').onclick=e=>{e.stopPropagation();const m=$('#bellm');m.hidden=!m.hidden};
 document.addEventListener('click',e=>{const m=$('#bellm');if(m&&!m.hidden&&!e.composedPath().includes(m)&&!e.target.closest('#bell'))m.hidden=true});
 
+/* ========= روابط الاختبارات للزوّار + تقرير ولي الأمر ========= */
+const base=()=>location.href.split('#')[0];
+const tlink=id=>base()+'#/t/'+encodeURIComponent(id);
+const hashTid=()=>{const p=location.hash.split('/');return p[1]==='t'?decodeURIComponent(p[2]||''):''};
+const itemById=id=>{for(const k of Object.keys(COURSES)){const x=COURSES[k].groups.flatMap(g=>g.items).find(i=>i.id===id);if(x)return x}return null};
+async function copyText(t){
+  try{await navigator.clipboard.writeText(t)}
+  catch(e){const a=document.createElement('textarea');a.value=t;a.style.cssText='position:fixed;opacity:0';document.body.append(a);a.select();try{document.execCommand('copy')}catch(x){}a.remove()}
+  toast('تم نسخ الرابط ✓');
+}
+const waUrl=t=>'https://wa.me/?text='+encodeURIComponent(t);
+const openWA=t=>window.open(waUrl(t),'_blank','noopener');
+const shareTestWA=id=>{const it=itemById(id);openWA(`📝 ${it?it.t:'اختبار'}\nاختبر نفسك على منصة جوده (بدون الحاجة لتسجيل دخول):\n${tlink(id)}`)};
+
+/* زائر: يدخل برابط الاختبار ويكتب اسمه فقط (تسجيل مجهول Anonymous في Firebase) */
+async function loadGuest(){
+  S.err='';S.tests={};S.media={};S.res=[];S.done={};S.folders={};
+  try{
+    await loadStructure();
+    if(S.gTid){
+      const s=await getDoc(doc(db,'tests',S.gTid));
+      if(s.exists()){const x=s.data();S.tests[S.gTid]=x.qs||[];S.gMeta=x.meta||null;if(x.meta&&x.meta.trk)discoverTests([[S.gTid,x.meta]])}
+    }
+  }catch(e){S.err=e.message;console.error(e)}
+}
+async function sharedRoute(){
+  const p=location.hash.split('/'),tid=decodeURIComponent(p[2]||''),md=p[3]==='train'?'train':p[3]==='exam'?'exam':'';
+  if(!tid){location.hash='#/';return}
+  S.gTid=tid;
+  if(!S.user){
+    app.innerHTML='<p class="mut" style="text-align:center;margin-top:80px">جارٍ فتح الاختبار...</p>';
+    try{await signInAnonymously(auth)}
+    catch(e){console.error(e);app.innerHTML='<div class="card login"><span class="lg" role="img" aria-label="شعار منصة جوده"></span><h2>تعذّر فتح الاختبار</h2><p class="er">'+(e.code==='auth/operation-not-allowed'?'فعّل تسجيل الدخول المجهول (Anonymous) من لوحة Firebase ← Authentication ← Sign-in method.':'تحقق من اتصال الإنترنت ثم أعد فتح الرابط.')+'</p></div>'}
+    return;
+  }
+  if(!S.guest&&!S.tests[tid]){
+    try{const s=await getDoc(doc(db,'tests',tid));if(s.exists()){const x=s.data();S.tests[tid]=x.qs||[];S.gMeta=x.meta||null;if(x.meta&&x.meta.trk)discoverTests([[tid,x.meta]])}}catch(e){console.warn(e)}
+  }
+  sharedLanding(tid,md);
+}
+function sharedLanding(tid,md){
+  const tk=trackOfItem(tid);if(tk)CUR_TRACK=tk;
+  applyLang();
+  const it=itemById(tid)||{id:tid,t:(S.gMeta&&S.gMeta.t)||'اختبار'},qs=getQs(tid),n=qs.length;
+  app.innerHTML=`<div class="card login"><span class="lg" role="img" aria-label="شعار منصة جوده"></span><h2>${esc(it.t)}</h2>
+  <p class="mut">${n?n+' سؤال':'لا توجد أسئلة في هذا الاختبار بعد'}</p>
+  ${S.guest?`<input id="gnm" placeholder="اكتب اسمك ليظهر في الاختبار" autocomplete="name" maxlength="40" value="${esc(S.name||LS.get('gname')||'')}">`:`<p class="mut">مرحباً ${esc(S.name)}</p>`}
+  <p class="er" id="er">${S.err?esc(S.err):''}</p>
+  ${n?`<div class="row" style="justify-content:center;flex-wrap:wrap;margin-top:6px">${md!=='train'?'<button class="btn" id="g1">⏱ ابدأ الاختبار</button>':''}${md!=='exam'?'<button class="btn ok" id="g2">📘 ابدأ التدريب</button>':''}</div>`:''}</div>`;
+  const go=m=>{
+    if(S.guest){const nm=$('#gnm').value.trim();if(nm.length<2)return $('#er').textContent='اكتب اسمك (حرفان على الأقل)';S.name=nm;LS.set('gname',nm)}
+    startQuiz(it,qs,m);
+  };
+  if($('#g1'))$('#g1').onclick=()=>go('exam');
+  if($('#g2'))$('#g2').onclick=()=>go('train');
+}
+
+/* تقرير ولي الأمر: رابط عام يعرض نتائج الطالب فقط (بدون تسجيل دخول) */
+const newTok=()=>{try{const a=new Uint8Array(22);crypto.getRandomValues(a);return[...a].map(x=>(x%36).toString(36)).join('')}catch(e){return uid()+uid()+uid()}};
+async function syncReport(){
+  if(!S.shareTok||!S.user)return false;
+  const items=S.res.slice(-200).map(x=>({t:x.t||'',tid:x.tid||'',sec:x.sec||'',m:x.m||'',p:+x.p||0,c:+x.c||0,n:+x.n||0,bl:+x.bl||0,fg:+x.fg||0,s:x.s==null?0:+x.s,d:x.d||''}));
+  try{await setDoc(doc(db,'reports',S.shareTok),{uid:S.user.uid,name:S.name||'',items,ts:serverTimestamp()});return true}
+  catch(e){console.warn('report',e);return false}
+}
+async function shareReport(how){
+  if(!S.res.length)return toast('لا توجد نتائج لمشاركتها بعد');
+  const w=how==='wa'?window.open('','_blank'):null; /* نفتح النافذة فوراً حتى لا يحجبها المتصفح */
+  if(!S.shareTok){
+    S.shareTok=(S.guest&&LS.get('rtok'))||newTok();
+    if(S.guest)LS.set('rtok',S.shareTok);else await saveUser({shareTok:S.shareTok});
+  }
+  if(!await syncReport()){if(w)w.close();return toast('تعذّر إنشاء رابط النتائج — انشر قواعد Firestore الخاصة بمجموعة reports')}
+  const link=base()+'#/r/'+S.shareTok,msg=`📊 نتائج ${S.name} في منصة جوده:\n${link}`;
+  if(how!=='wa')return copyText(link);
+  if(w){w.opener=null;w.location.href=waUrl(msg)}else openWA(msg);
+}
+async function reportPage(tok){
+  CUR_TRACK='computerized';applyLang();
+  app.innerHTML='<div class="card"><p class="mut">جارٍ تحميل النتائج...</p></div>';
+  let d=null;
+  try{if(tok){const s=await getDoc(doc(db,'reports',tok));d=s.exists()?s.data():null}}
+  catch(e){console.error(e);app.innerHTML='<div class="card"><p class="er">تعذّر تحميل النتائج. تحقق من الاتصال ثم أعد المحاولة.</p></div>';return}
+  if(!d){app.innerHTML='<div class="card login"><span class="lg" role="img" aria-label="شعار منصة جوده"></span><h2>الرابط غير صالح</h2><p class="mut">لم نجد نتائج لهذا الرابط.</p></div>';return}
+  const r=Array.isArray(d.items)?d.items:[],{a,b}=statBox(r),g=new Map();
+  r.forEach(x=>{const k=x.tid||x.t,o=g.get(k)||{t:x.t,sec:x.sec,n:0,best:0,last:x};o.n++;o.best=Math.max(o.best,x.p);o.last=x;g.set(k,o)});
+  const when=d.ts&&d.ts.toDate?d.ts.toDate().toLocaleString('ar-SA',{dateStyle:'medium',timeStyle:'short'}):'';
+  const col=p=>`var(--${p>=PASS.exam?'ok':'bad'})`;
+  app.innerHTML=`<div class="card score"><span class="lg" style="margin:0 auto 10px" role="img" aria-label="شعار منصة جوده"></span><h2>نتائج الطالب: ${esc(d.name||'—')}</h2><p class="mut">منصة جوده${when?' — آخر تحديث: '+esc(when):''}</p></div><br>
+  <div class="grid g3"><div class="card stat"><b>${r.length}</b>محاولة</div><div class="card stat"><b>${a}%</b>المتوسط</div><div class="card stat"><b>${b}%</b>الأعلى</div></div><br>
+  <div class="card"><h3>النتائج حسب الاختبار</h3>${g.size?`<div style="overflow-x:auto"><table><tr><th>الاختبار</th><th>القسم</th><th>المحاولات</th><th>الأعلى</th><th>آخر نتيجة</th><th>التاريخ</th></tr>${[...g.values()].map(o=>`<tr><td>${esc(o.t)}</td><td>${esc(o.sec||'')}</td><td>${o.n}</td><td><b style="color:${col(o.best)}">${o.best}%</b></td><td><b style="color:${col(o.last.p)}">${o.last.p}%</b></td><td>${esc(o.last.d||'')}</td></tr>`).join('')}</table></div>`:'<p class="mut">لا توجد محاولات بعد.</p>'}</div><br>
+  <div class="card"><h3>آخر المحاولات</h3>${r.length?resTable(r):'<p class="mut">لا توجد محاولات بعد.</p>'}</div>`;
+}
+
 /* ========= البدء ========= */
-{const d=document.createElement('div');d.id='bgd';const g='٠١٢٣٤٥٦٧٨٩±√π%';
+{const d=document.createElement('div');d.id='bgd';const g='٠٢٣٤٥٦٧٨٩±√π%';
  for(let i=0;i<14;i++){const s=document.createElement('span');s.textContent=g[Math.floor(Math.random()*g.length)];
   s.style.cssText=`left:${Math.random()*96}%;top:${Math.random()*92}%;font-size:${28+Math.random()*56}px;--t:${10+Math.random()*10}s;--d:${-Math.random()*10}s`;d.append(s)}
  document.body.prepend(d)}
@@ -1634,8 +1740,10 @@ if(!ready){
 }else{
   app.innerHTML='<p class="mut" style="text-align:center;margin-top:80px">جارٍ التحميل...</p>';
   onAuthStateChanged(auth,async u=>{
-    S.user=u;S.isAdmin=!!u&&u.uid===ADMIN_UID;stopBell();
-    if(u){await loadAll();applyAccent(S.accent);if(S.isAdmin)startBell()}
+    S.user=u;S.isAdmin=!!u&&u.uid===ADMIN_UID;S.guest=!!u&&u.isAnonymous;stopBell();
+    document.body.classList.toggle('guest',S.guest);
+    if(S.guest){S.approved=true;S.gTid=S.gTid||hashTid();S.name=LS.get('gname')||'';await loadGuest()}
+    else if(u){await loadAll();applyAccent(S.accent);if(S.isAdmin)startBell()}
     S.pending='';route();
   });
 }
