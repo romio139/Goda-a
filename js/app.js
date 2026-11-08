@@ -957,7 +957,7 @@ function admin(){
     const nVid=allIt.filter(x=>(S.media[x.id]||{}).video).length,nFil=allIt.reduce((a,x)=>a+((S.media[x.id]||{}).files||[]).length,0);
 
     app.innerHTML=`
-    <div class="qh"><div><h2>⚙ إدارة المحتوى</h2><p class="mut">اختر القسم ثم المرحلة، ثم أضف الاختبارات والأسئلة والملفات من مكان واحد.</p></div></div>
+    <div class="qh"><div><h2>⚙ إدارة المحتوى</h2><p class="mut">إدارة جميع الدورات (المحوسب، التأسيس، GAT، التحصيلي، المراحل التعليمية، American Section): أضف الاختبارات والأسئلة والملفات، وانسخ روابط الاختبارات من مكان واحد.</p></div></div>
     <div class="card ahub">
       <div class="ahs"><input class="inp" id="ahq" placeholder="🔎 اذهب مباشرة إلى أي مرحلة أو اختبار أو درس… (اكتب جزءاً من الاسم)" autocomplete="off"><div class="ahr" id="ahr" hidden></div></div>
       <div class="ahl">① القسم</div><div class="trbar" id="ah_top">${tops}</div>
@@ -1659,6 +1659,9 @@ async function loadGuest(){
       if(s.exists()){const x=s.data();S.tests[S.gTid]=x.qs||[];S.gMeta=x.meta||null;if(x.meta&&x.meta.trk)discoverTests([[S.gTid,x.meta]])}
     }
   }catch(e){S.err=e.message;console.error(e)}
+  /* نستعيد محاولات الزائر السابقة ورمز تقريره، حتى لا يستبدل تقرير ولي الأمر بنتائج هذه الجلسة فقط */
+  S.shareTok=LS.get('rtok')||'';
+  try{if(S.user)S.res=(await getDocs(collection(db,'users',S.user.uid,'results'))).docs.map(d=>d.data()).sort((a,b)=>(a.ts?.seconds||0)-(b.ts?.seconds||0))}catch(e){console.warn('guest results',e)}
 }
 async function sharedRoute(){
   const p=location.hash.split('/'),tid=decodeURIComponent(p[2]||''),md=p[3]==='train'?'train':p[3]==='exam'?'exam':'';
